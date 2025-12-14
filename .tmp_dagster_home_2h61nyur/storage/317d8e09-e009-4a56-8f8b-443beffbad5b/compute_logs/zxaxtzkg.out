@@ -1,9 +1,0 @@
-
---- Running extraction for 60s (1960-1969) ---
-Starting artist extraction for 1960-1969 to /Users/pacoreyes/PycharmProjects/musicRAG_ETL/data_volume/.temp/artist_index_60s.jsonl
-Starting data extraction for: artists_60s
-
-Retrieved batch 1: 400 records
-Saved 400 valid records from batch 1.
-
-Attempt 1/8 failed (ReadTimeout). Retrying in 2s...

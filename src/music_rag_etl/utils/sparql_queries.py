@@ -1,5 +1,6 @@
 def get_artists_by_year_range_query(
-    start_year: int, end_year: int, limit: int, offset: int) -> str:
+    start_year: int, end_year: int, limit: int, offset: int
+) -> str:
     """
     Generate a SPARQL query to fetch artists active within a specific year range.
 
@@ -74,7 +75,7 @@ WHERE {{
       FILTER(?occ IN (
         wd:Q639669,  # Musician
         wd:Q177220,  # Singer
-        wd:gQ130857,  # Disc jockey (DJ)
+        wd:Q130857,  # Disc jockey (DJ)
         wd:Q486748,  # Composer
         wd:Q183945   # Record producer
       ))
