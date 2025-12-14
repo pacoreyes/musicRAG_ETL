@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Distribution / Build
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Data (ETL specific)
+data/
+output/
+temp/
+data_volume/

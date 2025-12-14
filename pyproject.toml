@@ -1,0 +1,43 @@
+[project]
+name = "music_rag_etl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "dagster",
+    "dagster-cloud",
+    "dlt",
+    "polars",
+    "uv",
+    "pydantic",  # Data validation
+    "python-dotenv",
+    "cleantext", # Consider replaced by Polars
+    "ftfy",  # Consider replaced by Polars
+    "dagster-webserver",
+    "pytest",
+    "ruff", # Linter
+]
+
+[project.optional-dependencies]
+dev = [
+
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.dagster]
+module_name = "music_rag_etl.definitions"
+code_location_name = "music_rag_etl"
+
+# [tool.setuptools.packages.find]
+# exclude=["music_rag_etl_tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"

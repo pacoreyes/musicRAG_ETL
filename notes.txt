@@ -1,0 +1,7 @@
+- pip install dagster
+- dagster project scaffold --name <name of the project>
+- move pyproject.toml
+README.md
+setup.cfg
+setup.py to the root
+- pip install .

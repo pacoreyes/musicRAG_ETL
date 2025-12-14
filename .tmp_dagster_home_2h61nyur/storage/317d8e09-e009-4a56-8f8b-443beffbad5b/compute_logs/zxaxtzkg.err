@@ -1,0 +1,3 @@
+[32m2025-12-14 12:54:52 +0100[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 317d8e09-e009-4a56-8f8b-443beffbad5b - 53113 - LOGS_CAPTURED - Started capturing logs in process (pid: 53113).
+[32m2025-12-14 12:54:52 +0100[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 317d8e09-e009-4a56-8f8b-443beffbad5b - 53113 - create_artist_indexes - STEP_START - Started execution of step "create_artist_indexes".
+Processing batch 1:   0%|          | 0/400 [00:00<?, ?record/s]Processing batch 1:  99%|█████████▉| 397/400 [00:00<00:00, 3961.64record/s]Processing batch 1: 100%|██████████| 400/400 [00:00<00:00, 3963.37record/s]
