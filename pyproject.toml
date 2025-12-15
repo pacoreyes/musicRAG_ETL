@@ -16,7 +16,10 @@ dependencies = [
     "ftfy",  # Consider replaced by Polars
     "dagster-webserver",
     "pytest",
+    "pytest-mock",
     "ruff", # Linter
+    "wikipedia-api",
+    "langchain-text-splitters",
 ]
 
 [project.optional-dependencies]

@@ -5,3 +5,7 @@ README.md
 setup.cfg
 setup.py to the root
 - pip install .
+
+# run dagster
+export DAGSTER_HOME=~/.dagster
+dagster dev

@@ -27,3 +27,6 @@ data/
 output/
 temp/
 data_volume/
+
+# Dagster
+.tmp_*
