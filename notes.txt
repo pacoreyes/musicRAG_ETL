@@ -9,3 +9,29 @@ setup.py to the root
 # run dagster
 export DAGSTER_HOME=~/.dagster
 dagster dev
+
+-----
+# when Dagster goes crazy
+# 1. Kill any lingering dagster processes that might be stuck in the background
+pkill -f dagster
+
+# 2. Recursively delete all python cache files (The most likely culprit)
+#    (Mac/Linux)
+find . -name "__pycache__" -type d -exec rm -r {} +
+find . -name "*.pyc" -delete
+
+#    (Windows PowerShell)
+#    Get-ChildItem -Path . -Filter "__pycache__" -Recurse | Remove-Item -Force -Recurse
+
+# 3. Restart Dagster
+dagster dev
+
+The PyCharm Specific Fix
+Since you are on PyCharm, the IDE itself might be lying to you about what is indexed.
+
+Go to File > Invalidate Caches...
+
+Check the boxes for "Clear file system cache and Local History".
+
+Click Invalidate and Restart.
+----

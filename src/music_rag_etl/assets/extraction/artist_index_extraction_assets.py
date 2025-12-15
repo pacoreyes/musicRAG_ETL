@@ -1,10 +1,12 @@
-import shutil
+import shutil # <-- To be removed
+
 from typing import Callable
 
 from dagster import asset, AssetExecutionContext
 
-from music_rag_etl.utils.extraction_helpers import run_extraction, process_artist_record
+from music_rag_etl.utils.extraction_helpers import fetch_wikidata_data, process_artist_record
 from music_rag_etl.utils.sparql_queries import get_artists_by_year_range_query
+from music_rag_etl.utils.io_helpers import merge_jsonl_files # <-- New import
 
 from music_rag_etl.settings import PATH_TEMP, DECADES_TO_EXTRACT, ARTIST_INDEX
 
@@ -32,7 +34,7 @@ def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> 
         """
         # context.log.info(f"Starting artist extraction for {decade} ({start_year}-{end_year})")
 
-        run_extraction(
+        fetch_wikidata_data(
             context=context,
             output_path=output_path,
             get_query_function=get_artists_by_year_range_query,
@@ -69,21 +71,11 @@ def merge_artist_index(context: AssetExecutionContext) -> str:
     Merges all decade-specific artist JSONL files into a single artist_index.jsonl.
     """
     output_path = PATH_TEMP / ARTIST_INDEX
+    input_paths = [
+        PATH_TEMP / f"artist_index_{decade}.jsonl" for decade in DECADES_TO_EXTRACT
+    ]
 
-    # Open the destination file in binary write mode
-    with open(output_path, "wb") as outfile:
-        for decade in DECADES_TO_EXTRACT:
-            input_filename = f"artist_index_{decade}.jsonl"
-            input_path = PATH_TEMP / input_filename
-
-            if not input_path.exists():
-                context.log.warning(f"Expected input file missing: {input_path}")
-                continue
-
-            # Efficiently copy the content of each shard into the main file
-            with open(input_path, "rb") as infile:
-                shutil.copyfileobj(infile, outfile)
-            context.log.info(f"Merged artist of decade {decade}")
+    merge_jsonl_files(input_paths, output_path)
 
     context.log.info(f"Merged artist index saved to {output_path}")
     return str(output_path)

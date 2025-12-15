@@ -1,84 +1,69 @@
-import json
-# from pathlib import Path
-from typing import List
-import urllib.request
+from pathlib import Path
+from typing import Dict, Any, Optional
 
-from polars import pl
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
+import polars as pl
 from dagster import asset, AssetExecutionContext
-from music_rag_etl.settings import (
-    PATH_TEMP,
-    ARTIST_INDEX,
-    DATA_DIR,
-    WIKIPEDIA_CACHE_DIR,
-    WIKIDATA_ENTITY_URL,
-    USER_AGENT
+
+from music_rag_etl.settings import ARTIST_INDEX, GENRES_FILE
+from music_rag_etl.utils.io_helpers import save_to_jsonl
+from music_rag_etl.utils.transformation_helpers import extract_unique_ids_from_column
+from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
+from music_rag_etl.utils.wikidata_helpers import (
+    fetch_wikidata_entity,
+    parse_wikidata_entity_label,
 )
-from music_rag_etl.utils.extraction_helpers import fetch_wikidata_entity
 
 
 @asset(
-    name="genres_extraction_from_artists",
+    name="genres_extraction_from_artist_index",
     deps=["artist_index_with_relevance"],
-    description="Extraction of all genres from the Artist index."
+    description="Extraction of all genres from the Artist index and saves them to a JSONL file."
 )
-def genres_extraction_from_artists(context: AssetExecutionContext) -> str:
-    # output_filename = "artist_index.jsonl"
-    # output_path = DATA_DIR / output_filename
+def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
+    """
+    Extracts all unique music genre IDs from the artist index, fetches their
+    English labels from Wikidata concurrently, and saves the results to a
+    JSONL file.
+    """
+    context.log.info("Starting genre extraction from artist index.")
 
-    results = []
+    # 1. Read artist index and extract unique genre IDs
+    df = pl.read_ndjson(ARTIST_INDEX)
+    unique_genre_ids = extract_unique_ids_from_column(df, "genres")
+    context.log.info(f"Found {len(unique_genre_ids)} unique genre IDs in the artist index.")
 
-    # Read only the "genre_ids" column from the JSONL file
-    df = pl.read_ndjson(ARTIST_INDEX, columns=["genres"])
+    # Slicing for development/testing to avoid long runs
+    unique_genre_ids = unique_genre_ids[:10]
+    context.log.info(f"Processing a slice of {len(unique_genre_ids)} genres for this run.")
 
-    # Get unique values and convert to Python list
-    unique_genre_ids = (
-        df["genres"]
-        # .explode()  # Flattens [[A, B], [A]] -> [A, B, A]
-        # .drop_nulls()  # Removes any nulls/None
-        .unique()  # Deduplicates [A, B, A] -> [A, B]
-        .to_list()  # Converts to standard Python list
+    # 2. Define a worker function for concurrent processing
+    def fetch_and_parse_genre(genre_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Worker function to fetch a Wikidata entity and parse its label.
+        To be used with the concurrent processor.
+        """
+        entity_data = fetch_wikidata_entity(context, genre_id)
+        if not entity_data:
+            return None
+        
+        label = parse_wikidata_entity_label(entity_data, genre_id)
+        if not label:
+            context.log.warning(f"No English label found for genre ID {genre_id}.")
+            return None
+        
+        return {"wikidata_id": genre_id, "genre_label": label}
+
+    # 3. Fetch and process genres concurrently
+    context.log.info("Fetching genre labels from Wikidata concurrently...")
+    results = process_items_concurrently(
+        items=unique_genre_ids,
+        process_func=fetch_and_parse_genre,
+        max_workers=5
     )
 
-    unique_genre_ids = unique_genre_ids[:10]  #split fir testing ---------------------------------->>>>>>>>>>>>
+    # 4. Save results to a JSONL file
+    save_to_jsonl(results, GENRES_FILE)
+    
+    context.log.info(f"Successfully saved {len(results)} genres to {GENRES_FILE}")
+    return GENRES_FILE
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_entity = {
-            executor.submit(
-                fetch_wikidata_entity(genre_id),
-                context = context,
-            ): genre_id for genre_id in unique_genre_ids
-        }
-
-        processed_count = 0
-
-        for future in as_completed(future_to_entity):
-            genre_data = future_to_entity[future]
-            print(genre_data)
-
-    return ""
-
-"""            # Access the specific entity data
-            entity = data.get("entities", {}).get(qid, {})
-
-
-
-            try:
-                # If text is empty
-                if genre_data is {}:
-                    continue
-                else:
-                    results.append(
-                        {
-                            "wikidata_id": genre_data["wikidata_id"],
-                            "genre_label": genre_data["label"],
-
-                        }
-                    )
-            except Exception as e:
-                context.log.error(
-                    f"Error processing artist {row['artist']} ({row['wikidata_id']}): {e}"
-                    )
-
-        return pl.DataFrame(results)"""

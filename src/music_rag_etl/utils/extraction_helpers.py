@@ -1,25 +1,17 @@
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, List
-import requests
-import urllib.request
-
+from typing import Any, Callable, Dict
 
 from dagster import AssetExecutionContext
 
-from music_rag_etl.utils.transformation_helpers import clean_text
+from music_rag_etl.utils.transformation_helpers import get_best_label
 from music_rag_etl.settings import (
     WIKIDATA_BATCH_SIZE,
-    WIKIDATA_HEADERS,
-    WIKIDATA_SPARQL_URL,
-    WIKIPEDIA_CACHE_DIR,
-    USER_AGENT,
     WIKIDATA_ENTITY_URL
 )
-from music_rag_etl.utils.request_utils import make_request_with_retries
+from music_rag_etl.utils.wikidata_helpers import fetch_sparql_query
 
 
-# Runner for executing and saving data from a SPARQL endpoint.
 def fetch_wikidata_data(
     context: AssetExecutionContext,
     output_path: Path,
@@ -51,7 +43,6 @@ def fetch_wikidata_data(
         while True:
             batch_num += 1
             try:
-                # 1. Build Query for the current batch
                 query = get_query_function(
                     start_year=start_year,
                     end_year=end_year,
@@ -59,26 +50,14 @@ def fetch_wikidata_data(
                     offset=offset
                 )
 
-                # 2. Fetch Data
-                response = make_request_with_retries(
-                    context=context,
-                    url=WIKIDATA_SPARQL_URL,
-                    params={"query": query, "format": "json"},
-                    headers=WIKIDATA_HEADERS,
-                )
-                data = response.json()
-                results: List[Dict[str, Any]] = data.get("results", {}).get(
-                    "bindings", []
-                )
-
+                results = fetch_sparql_query(context, query)
                 num_retrieved = len(results)
-                context.log.info(f"Retrieved batch {batch_num}: {num_retrieved} records")
+                context.log.info(f"Retrieved batch {batch_num} for {label}: {num_retrieved} records")
 
                 if not results:
-                    context.log.info("No more results from endpoint. Extraction finished.")
+                    context.log.info(f"No more results from endpoint for {label}. Extraction finished.")
                     break
 
-                # 3. Process and Save
                 batch_written_count = 0
                 for item in results:
                     processed_record = record_processor(item)
@@ -88,23 +67,11 @@ def fetch_wikidata_data(
                         )
                         total_written += 1
                         batch_written_count += 1
-
-                # context.log.info(
-                #    f"Saved {batch_written_count} valid records from batch {batch_num}.\n"
-                #)
-
+                
                 offset += num_retrieved
 
-            except requests.exceptions.RequestException as e:
-                context.log.error(f"An unrecoverable error occurred: {e}")
-                context.log.info("Stopping the script. The data file may be incomplete.")
-                return
-            except json.JSONDecodeError as e:
-                context.log.error(f"Error decoding JSON response: {e}")
-                context.log.info("Stopping the script. The data file may be incomplete.")
-                return
             except Exception as e:
-                context.log.error(f"An unexpected critical error occurred: {e}")
+                context.log.error(f"An unexpected critical error occurred in batch {batch_num} for {label}: {e}")
                 return
 
     context.log.info(f"Total records stored in {output_path.name}: {total_written}")
@@ -130,21 +97,12 @@ def process_artist_record(item: Dict[str, Any]) -> Dict[str, Any] | None:
     if not artist_uri:
         return None
 
-    # Find the best available label, prioritizing languages
-    label_candidates = [
-        _get_value(item, "artistLabel_en"),
-        _get_value(item, "artistLabel_es"),
-        _get_value(item, "artistLabel_fr"),
-        _get_value(item, "artistLabel_de"),
-        _get_value(item, "artistLabel"),
-    ]
-    cleaned_label = next(
-        (clean_text(c) for c in label_candidates if c and clean_text(c)),
-        None,
-    )
-
-    if not cleaned_label:
+    cleaned_label_text = get_best_label(item, "artistLabel")
+    if not cleaned_label_text:
         return None
+    
+    # Simple string cleaning, as the clean_text from transformation_helpers expects a DataFrame
+    cleaned_label = " ".join(cleaned_label_text.split())
 
     # Extract and clean genres and aliases
     genres_str = _get_value(item, "genres") or ""
@@ -163,38 +121,3 @@ def process_artist_record(item: Dict[str, Any]) -> Dict[str, Any] | None:
         "inception": _get_value(item, "date"),
         "linkcount": _get_value(item, "linkcount"),
     }
-
-
-def fetch_wikidata_entity(
-    context: AssetExecutionContext,
-    wikidata_id: str
-) -> List[Dict[str, Any]]:
-    """
-    Fetches a Wikipedia page, either from local text cache or the API.
-    """
-    # Check if QID is well formed "Q###" # = numbers
-    # 1. Check if not empty, 2. Check if starts with "Q" 3. Check if the rest (slicing from index 1) is digits
-    if not wikidata_id and wikidata_id.startswith('Q') and wikidata_id[1:].isdigit():
-        context.log.error(f"Malformed QID: {wikidata_id}")
-        return []
-
-    cache_file_path = WIKIPEDIA_CACHE_DIR / f"{wikidata_id}.jsonl"  # entity is stored in JSONL
-
-    # Try cache
-    if cache_file_path.exists():
-        try:
-            with open(cache_file_path, 'r', encoding='utf-8') as file:
-                return [json.loads(line) for line in file if line.strip()]
-        except Exception as e:
-            context.log.error(f"Cache read failed for {wikidata_id}.json, falling back to API: {e}")
-    try:
-        # Make API request
-        entity_wikidata_url = f"{WIKIDATA_ENTITY_URL}{wikidata_id}.json"
-        request = urllib.request.Request(entity_wikidata_url, headers={"User-Agent": USER_AGENT})
-        # Prepare payload in JSON format
-        with open(urllib.request.urlopen(request, timeout=10)) as response:
-            data = json.load(response)
-            return [data]
-    except Exception as e:
-        print(f"Error: {e}")
-        return []

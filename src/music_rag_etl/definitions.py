@@ -1,7 +1,7 @@
 from dagster import Definitions, load_assets_from_modules, EnvVar
 
 from music_rag_etl.assets.extraction import (
-    artist_extraction_assets, wikipedia_extraction_assets, genres_extraction_assets
+    artist_index_extraction_assets, wikipedia_articles_extraction_assets, genres_extraction_assets
 )
 from music_rag_etl.assets.transformation import artist_index_cleaning_assets, update_relevance_score_asset
 from music_rag_etl import assets as root_assets
@@ -9,10 +9,10 @@ from music_rag_etl import assets as root_assets
 # Create a list of all asset modules
 asset_modules = [
     root_assets,
-    artist_extraction_assets,
+    artist_index_extraction_assets,
     artist_index_cleaning_assets,
     update_relevance_score_asset,
-    wikipedia_extraction_assets,
+    wikipedia_articles_extraction_assets,
     genres_extraction_assets
 ]
 

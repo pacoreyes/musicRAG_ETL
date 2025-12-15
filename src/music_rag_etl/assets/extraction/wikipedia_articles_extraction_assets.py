@@ -80,7 +80,7 @@ def fetch_raw_wikipedia_articles(context: AssetExecutionContext) -> pl.DataFrame
     context.log.info(f"Loading artist index from Artist Index")
     artist_df = pl.read_ndjson(ARTIST_INDEX_CLEANED)
 
-    wiki_api = wikipediaapi.Wikipedia(user_agent=USER_AGENT, language='en')
+    wiki_api = wikipediaapi.Wikipedia(user_agent=USER_AGENT, language='en', timeout=30)
 
     # Ensure the cache directory exists
     WIKIPEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -105,12 +105,11 @@ def fetch_raw_wikipedia_articles(context: AssetExecutionContext) -> pl.DataFrame
             row = future_to_artist[future]
             try:
                 # If text is empty
-                page_data = future.result()
-                if page_data is None:
+                page_text = future.result()
+                if page_text is None:
                     continue
 
-                page = future.result()
-                if page:
+                if page_text:
                     results.append(
                         {
                             "wikidata_id": row["wikidata_id"],
@@ -118,7 +117,7 @@ def fetch_raw_wikipedia_articles(context: AssetExecutionContext) -> pl.DataFrame
                             "genres": row["genres"],
                             "inception_year": row["inception"],
                             "wikipedia_url": row["wikipedia_url"],
-                            "page_text": page.text,
+                            "page_text": page_text,
                             "references_score": row["relevance_score"]
                         }
                     )
@@ -130,7 +129,7 @@ def fetch_raw_wikipedia_articles(context: AssetExecutionContext) -> pl.DataFrame
     return pl.DataFrame(results)
 
 
-@asset(
+"""@asset(
     name="chunk_and_enrich_articles",
     deps="raw_fetch_wikipedia_articles",
     description="Chunks articles and enriches them with metadata.",
@@ -138,9 +137,9 @@ def fetch_raw_wikipedia_articles(context: AssetExecutionContext) -> pl.DataFrame
 def chunk_and_enrich_articles(
     context: AssetExecutionContext, raw_wikipedia_articles: pl.DataFrame
 ) -> list:
-    """
-    Takes a DataFrame of raw articles, chunks them, and enriches each chunk with metadata.
-    """
+    
+    # Takes a DataFrame of raw articles, chunks them, and enriches each chunk with metadata.
+    
     context.log.info(f"Chunking and enriching Wikipedia articles...")
 
     text_splitter = RecursiveCharacterTextSplitter(
@@ -197,10 +196,10 @@ def chunk_and_enrich_articles(
 def wikipedia_articles_file(
     context: AssetExecutionContext, enriched_chunked_articles: list
 ) -> Path:
-    """
-    Takes the enriched chunks, calculates the final relevance score,
-    and saves the result to a JSONL file.
-    """
+    
+    # Takes the enriched chunks, calculates the final relevance score,
+    # and saves the result to a JSONL file.
+    
     if not enriched_chunked_articles:
         context.log.warning("No articles to process.")
         return WIKIPEDIA_ARTICLES_FILE
@@ -230,3 +229,4 @@ def wikipedia_articles_file(
 
     context.log.info(f"Successfully saved {len(final_data)} article chunks to {WIKIPEDIA_ARTICLES_FILE}")
     return WIKIPEDIA_ARTICLES_FILE
+"""
