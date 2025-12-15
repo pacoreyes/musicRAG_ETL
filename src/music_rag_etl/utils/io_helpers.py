@@ -32,3 +32,15 @@ def merge_jsonl_files(input_paths: List[Path], output_path: Path):
             if input_path.exists():
                 with open(input_path, "rb") as infile:
                     shutil.copyfileobj(infile, outfile)
+
+
+def chunk_list(items: List, size: int):
+    """
+    Yield successive n-sized chunks from a list.
+
+    Args:
+        items: The list to chunk.
+        size: The size of each chunk.
+    """
+    for i in range(0, len(items), size):
+        yield items[i : i + size]

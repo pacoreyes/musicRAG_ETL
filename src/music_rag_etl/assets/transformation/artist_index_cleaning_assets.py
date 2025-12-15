@@ -1,6 +1,6 @@
 import polars as pl
 from dagster import asset, AssetExecutionContext
-from music_rag_etl.settings import PATH_TEMP, ARTIST_INDEX, DATA_DIR
+from music_rag_etl.settings import PATH_TEMP, ARTIST_INDEX_PRE_CLEAN, DATA_DIR
 
 
 @asset(
@@ -13,7 +13,7 @@ def deduplicate_artists(context: AssetExecutionContext) -> str:
     Reads the raw merged artist index, deduplicates entries, and saves a clean version.
     Uses Polars for high-performance processing.
     """
-    input_path = PATH_TEMP / ARTIST_INDEX
+    input_path = PATH_TEMP / ARTIST_INDEX_PRE_CLEAN
     output_filename = "artist_index.jsonl"
     output_path = DATA_DIR / output_filename
 

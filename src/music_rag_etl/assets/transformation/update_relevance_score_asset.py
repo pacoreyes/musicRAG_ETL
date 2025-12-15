@@ -2,7 +2,7 @@ from pathlib import Path
 import polars as pl
 from dagster import asset
 
-from music_rag_etl.settings import ARTIST_INDEX, ARTIST_INDEX_CLEANED
+from music_rag_etl.settings import ARTIST_INDEX_PRE_CLEAN, ARTIST_INDEX
 
 
 @asset(
@@ -23,7 +23,7 @@ def artist_index_with_relevance() -> Path:
         pathlib.Path: The path to the updated artist index file.
     """
     # Step 1: Load the artist index
-    df = pl.read_ndjson(ARTIST_INDEX)
+    df = pl.read_ndjson(ARTIST_INDEX_PRE_CLEAN)
 
     # Cast 'linkcount' to integer type for calculations
     df = df.with_columns(pl.col("linkcount").cast(pl.Int64))
@@ -44,6 +44,6 @@ def artist_index_with_relevance() -> Path:
         )
 
     # Overwrite the original file with the new data
-    df.write_ndjson(ARTIST_INDEX_CLEANED)
+    df.write_ndjson(ARTIST_INDEX)
 
-    return ARTIST_INDEX_CLEANED
+    return ARTIST_INDEX

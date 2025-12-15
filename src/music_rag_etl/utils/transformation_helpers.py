@@ -18,6 +18,24 @@ def clean_text(df: pl.DataFrame, col_name: str) -> pl.DataFrame:
     )
 
 
+def clean_text_string(text: str) -> str:
+    """
+    Applies text cleaning operations to a single string.
+    Matches the logic of the `clean_text` DataFrame function.
+    """
+    if not isinstance(text, str):
+        return text  # Or raise an error, depending on desired behavior
+
+    # 1. Manual replacements (escaped quotes & newlines)
+    text = text.replace('\\"', '"')  # Fix escaped quotes
+    text = re.sub(r"[\n\r]+", " ", text)  # Replace newlines with space
+
+    # 2. Cleantext equivalent (extra_spaces=True)
+    text = re.sub(r"\s+", " ", text)  # Squash multiple spaces
+    text = text.strip()  # Remove leading/trailing space
+    return text
+
+
 def extract_unique_ids_from_column(
     df: pl.DataFrame, column_name: str
 ) -> List[str]:
@@ -41,33 +59,44 @@ def extract_unique_ids_from_column(
             
     return sorted(list(unique_ids))  # Return sorted list for consistent output
 
+import re
 
-def get_best_label(
-    record: Dict[str, any],
-    base_key: str,
-    lang_priority: List[str] = ['en', 'es', 'fr', 'de']
-) -> Optional[str]:
+def normalize_relevance_score(
+    raw_references: int, min_refs: int, max_refs: int
+) -> float:
     """
-    Finds the best available label from a SPARQL record based on a language priority list.
+    Normalizes a raw reference count to a score between 0 and 1.
 
     Args:
-        record: The dictionary representing a single record from the SPARQL query result.
-        base_key: The base name for the label key (e.g., "artistLabel").
-        lang_priority: A list of language codes in order of preference (e.g., ['en', 'es']).
+        raw_references: The raw number of references for an article.
+        min_refs: The minimum raw reference count found across all articles.
+        max_refs: The maximum raw reference count found across all articles.
 
     Returns:
-        The first non-empty label found, or None if no suitable label is available.
+        A normalized relevance score (float between 0 and 1).
     """
-    # First, try specific language labels based on priority
-    for lang in lang_priority:
-        label = record.get(f"{base_key}_{lang}", {}).get("value")
-        if label:
-            return label
+    if max_refs == min_refs:
+        return 0.5  # Default to mid-score if no variance
+    return (raw_references - min_refs) / (max_refs - min_refs)
 
-    # If no prioritized language label is found, try the generic label
-    generic_label = record.get(base_key, {}).get("value")
-    if generic_label:
-        return generic_label
+
+def convert_year_from_iso(iso_date: str) -> Optional[str]:
+    """
+    Converts an ISO date string (e.g., "1999-12-31T00:00:00Z") to its year.
+    If the date is just a year (e.g., "1999"), it returns the year.
+    Returns None if the format is not recognized or input is not a string.
+    """
+    if not isinstance(iso_date, str):
+        return None
     
+    # Try to extract year from full ISO format (YYYY-MM-DD...)
+    match = re.match(r"^(\d{4})-\d{2}-\d{2}", iso_date)
+    if match:
+        return match.group(1)
+    
+    # If it's just a year string
+    if re.match(r"^\d{4}$", iso_date):
+        return iso_date
+
     return None
 

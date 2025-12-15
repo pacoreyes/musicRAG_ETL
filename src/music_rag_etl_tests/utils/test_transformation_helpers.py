@@ -4,7 +4,6 @@ from polars.testing import assert_frame_equal
 from music_rag_etl.utils.transformation_helpers import (
     clean_text,
     extract_unique_ids_from_column,
-    get_best_label,
 )
 
 
@@ -83,57 +82,4 @@ def test_extract_unique_ids_from_column_empty_and_nulls():
     # Test with an empty dataframe
     df3 = pl.DataFrame({"genres": pl.Series([], dtype=pl.List(pl.Utf8))})
     assert extract_unique_ids_from_column(df3, "genres") == []
-
-
-# --- Tests for get_best_label ---
-
-def test_get_best_label_priority_success():
-    """Tests that get_best_label returns the highest priority available label."""
-    record = {
-        "artistLabel_es": {"value": "Artista Español"},
-        "artistLabel_en": {"value": "English Artist"},
-        "artistLabel": {"value": "Generic Artist"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label == "English Artist"
-    
-    label_es_priority = get_best_label(record, "artistLabel", ['es', 'en'])
-    assert label_es_priority == "Artista Español"
-
-
-def test_get_best_label_fallback_to_generic():
-    """Tests that get_best_label falls back to the generic label if no prioritized language label is found."""
-    record = {
-        "artistLabel_fr": {"value": "Artiste Français"},
-        "artistLabel": {"value": "Generic Artist"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label == "Generic Artist"
-
-
-def test_get_best_label_no_label_found():
-    """Tests that get_best_label returns None if no label is found."""
-    record = {
-        "otherField": {"value": "Something else"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label is None
-
-
-def test_get_best_label_empty_labels():
-    """Tests handling of empty strings as labels."""
-    record = {
-        "artistLabel_en": {"value": ""},
-        "artistLabel_es": {"value": "Artista Español"},
-        "artistLabel": {"value": "Generic Artist"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label == "Artista Español"
-    
-    record_no_valid = {
-        "artistLabel_en": {"value": ""},
-        "artistLabel": {"value": ""},
-    }
-    label_no_valid = get_best_label(record_no_valid, "artistLabel", ['en'])
-    assert label_no_valid is None
 

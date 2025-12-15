@@ -1,14 +1,15 @@
-import shutil # <-- To be removed
-
 from typing import Callable
 
 from dagster import asset, AssetExecutionContext
 
-from music_rag_etl.utils.extraction_helpers import fetch_wikidata_data, process_artist_record
 from music_rag_etl.utils.sparql_queries import get_artists_by_year_range_query
-from music_rag_etl.utils.io_helpers import merge_jsonl_files # <-- New import
+from music_rag_etl.utils.io_helpers import merge_jsonl_files
+from music_rag_etl.utils.wikidata_helpers import (
+    execute_sparql_extraction,
+    format_artist_record_from_sparql,
+)
 
-from music_rag_etl.settings import PATH_TEMP, DECADES_TO_EXTRACT, ARTIST_INDEX
+from music_rag_etl.settings import PATH_TEMP, DECADES_TO_EXTRACT, ARTIST_INDEX_PRE_CLEAN
 
 
 def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> Callable:
@@ -32,16 +33,14 @@ def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> 
         """
         Extracts artist data for a specific decade and saves it to a JSONL file.
         """
-        # context.log.info(f"Starting artist extraction for {decade} ({start_year}-{end_year})")
-
-        fetch_wikidata_data(
+        execute_sparql_extraction(
             context=context,
             output_path=output_path,
             get_query_function=get_artists_by_year_range_query,
-            record_processor=process_artist_record,
+            record_processor=format_artist_record_from_sparql,
+            label=f"artists_{decade}",
             start_year=start_year,
             end_year=end_year,
-            label=f"artists_{decade}",
         )
 
         context.log.info(f"Finished extraction for {decade}. Output at {output_path}")
@@ -70,7 +69,7 @@ def merge_artist_index(context: AssetExecutionContext) -> str:
     """
     Merges all decade-specific artist JSONL files into a single artist_index.jsonl.
     """
-    output_path = PATH_TEMP / ARTIST_INDEX
+    output_path = PATH_TEMP / ARTIST_INDEX_PRE_CLEAN
     input_paths = [
         PATH_TEMP / f"artist_index_{decade}.jsonl" for decade in DECADES_TO_EXTRACT
     ]

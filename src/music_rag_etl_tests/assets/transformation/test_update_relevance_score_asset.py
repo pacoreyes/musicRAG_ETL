@@ -5,7 +5,7 @@ import polars as pl
 from pathlib import Path
 
 from music_rag_etl.assets.transformation.update_relevance_score_asset import artist_index_with_relevance
-from music_rag_etl.settings import ARTIST_INDEX, ARTIST_INDEX_CLEANED
+from music_rag_etl.settings import ARTIST_INDEX_PRE_CLEAN, ARTIST_INDEX
 
 class TestUpdateRelevanceScoreAsset(unittest.TestCase):
 
@@ -28,7 +28,7 @@ class TestUpdateRelevanceScoreAsset(unittest.TestCase):
             result_path = artist_index_with_relevance()
 
         # Assert
-        self.assertEqual(result_path, ARTIST_INDEX_CLEANED)
+        self.assertEqual(result_path, ARTIST_INDEX)
         self.assertEqual(len(captured_dfs), 1)
         result_df = captured_dfs[0]
         
@@ -54,7 +54,7 @@ class TestUpdateRelevanceScoreAsset(unittest.TestCase):
             result_path = artist_index_with_relevance()
 
         # Assert
-        self.assertEqual(result_path, ARTIST_INDEX_CLEANED)
+        self.assertEqual(result_path, ARTIST_INDEX)
         self.assertEqual(len(captured_dfs), 1)
         result_df = captured_dfs[0]
         

@@ -41,8 +41,8 @@ CHROMA_DB_PATH = DATA_DIR / "db" / "music_rag_vector"
 # ==============================================================================
 # Direct paths to specific files. These are derived from the core paths above.
 
-ARTIST_INDEX = DATA_DIR / ".temp" / "artist_index.jsonl"
-ARTIST_INDEX_CLEANED = DATA_DIR / "artist_index_cleaned.jsonl"
+ARTIST_INDEX_PRE_CLEAN = DATA_DIR / ".temp" / "artist_index_pre_clean.jsonl"
+ARTIST_INDEX = DATA_DIR / "artist_index.jsonl"
 
 WIKIPEDIA_ARTICLES_FILE = DATA_DIR / "wikipedia_articles.jsonl"
 WIKIPEDIA_ARTICLES_FILE_TEMP = DATA_DIR / ".temp" / "wikipedia_articles_temp.jsonl"
@@ -58,12 +58,13 @@ TRACKS_FILE = DATA_DIR / "tracks.jsonl"
 # Endpoints and credentials for external services.
 
 # --- Wikidata ---
+WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 WIKIDATA_ENTITY_URL = "http://www.wikidata.org/entity/"
 USER_AGENT = "musicRAG_ETL (reyes@b-tu.de)"
 WIKIDATA_HEADERS = {
     "User-Agent": USER_AGENT,
-    "Accept": "application/sparql-results+json",
+    "Accept": "application/json",
 }
 
 # --- Last.fm ---
