@@ -2,7 +2,9 @@
 Centralized configuration settings for the musicRAG ETL project.
 """
 
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # ==============================================================================
 #  CORE PATH DEFINITIONS
@@ -15,6 +17,9 @@ SRC_ROOT = Path(__file__).resolve().parents[1]
 # The absolute root of the project (one level up from 'src').
 # Use this for accessing top-level project resources like 'data_volume'.
 PROJECT_ROOT = SRC_ROOT.parent
+
+# Load environment variables from .env file located at the project root
+load_dotenv(PROJECT_ROOT / ".env")
 
 # Top-level directory for all data, caches, and databases.
 DATA_DIR = PROJECT_ROOT / "data_volume"
@@ -33,6 +38,9 @@ LASTFM_CACHE_DIR = DATA_DIR / ".cache" / "last_fm"
 # For intermediate files during ETL processes.
 PATH_TEMP = DATA_DIR / ".temp"
 
+# Datasets
+PATH_DATASETS = DATA_DIR / "datasets"
+
 # --- Vector DB ---
 CHROMA_DB_PATH = DATA_DIR / "vector_db"
 
@@ -41,16 +49,16 @@ CHROMA_DB_PATH = DATA_DIR / "vector_db"
 # ==============================================================================
 # Direct paths to specific files. These are derived from the core paths above.
 
-ARTIST_INDEX_PRE_CLEAN = DATA_DIR / ".temp" / "artist_index_pre_clean.jsonl"
-ARTIST_INDEX = DATA_DIR / "artist_index.jsonl"
+ARTIST_INDEX_PRE_CLEAN = DATA_DIR / "datasets" / "artist_index_pre_clean.jsonl"
+ARTIST_INDEX = DATA_DIR / "datasets" / "artist_index.jsonl"
 
-WIKIPEDIA_ARTICLES_FILE = DATA_DIR / "wikipedia_articles.jsonl"
+WIKIPEDIA_ARTICLES_FILE = DATA_DIR / "datasets" / "wikipedia_articles.jsonl"
 WIKIPEDIA_ARTICLES_FILE_TEMP = DATA_DIR / ".temp" / "wikipedia_articles_temp.jsonl"
 
-ARTISTS_FILE = DATA_DIR / "artists.jsonl"
-GENRES_FILE = DATA_DIR / "genres.jsonl"
-ALBUMS_FILE = DATA_DIR / "albums.jsonl"
-TRACKS_FILE = DATA_DIR / "tracks.jsonl"
+ARTISTS_FILE = DATA_DIR / "datasets" / "artists.jsonl"
+GENRES_FILE = DATA_DIR / "datasets" / "genres.jsonl"
+ALBUMS_FILE = DATA_DIR / "datasets" / "albums.jsonl"
+TRACKS_FILE = DATA_DIR / "datasets" / "tracks.jsonl"
 
 # ==============================================================================
 #  API & SERVICE CONFIGURATION
@@ -100,3 +108,7 @@ DECADES_TO_EXTRACT = {
     "2010s": (2010, 2019),
     "2020s": (2020, 2029),
 }
+
+# Last FM API key and URL
+LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
+LASTFM_API_URL = "http://ws.audioscrobbler.com/2.0/"

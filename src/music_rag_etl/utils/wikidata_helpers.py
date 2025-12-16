@@ -211,7 +211,7 @@ def fetch_wikidata_entities_batch(
     params = {
         "action": "wbgetentities",
         "ids": id_string,
-        "props": "labels",
+        "props": "labels|aliases|claims",
         "languages": "en",
         "format": "json",
     }
@@ -233,6 +233,52 @@ def fetch_wikidata_entities_batch(
         return {}
 
 
+def fetch_wikidata_entities_batch_with_cache(
+    context: AssetExecutionContext, qids: List[str]
+) -> Dict[str, Any]:
+    """
+    Fetches a batch of Wikidata entities, utilizing a local file cache to avoid
+    redundant API calls.
+    """
+    results = {}
+    missing_qids = []
+
+    WIKIDATA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    for qid in qids:
+        cache_file_path = WIKIDATA_CACHE_DIR / f"{qid}.json"
+        if cache_file_path.exists():
+            try:
+                with open(cache_file_path, "r", encoding="utf-8") as f:
+                    results[qid] = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                context.log.warning(
+                    f"Could not read cache file for {qid}, refetching. Error: {e}"
+                )
+                missing_qids.append(qid)
+        else:
+            missing_qids.append(qid)
+
+    if missing_qids:
+        context.log.info(
+            f"Cache miss for {len(missing_qids)} QIDs. Fetching from API."
+        )
+        api_results = fetch_wikidata_entities_batch(context, missing_qids)
+        fetched_entities = api_results.get("entities", {})
+
+        for qid, entity_data in fetched_entities.items():
+            cache_file_path = WIKIDATA_CACHE_DIR / f"{qid}.json"
+            try:
+                with open(cache_file_path, "w", encoding="utf-8") as f:
+                    json.dump(entity_data, f, ensure_ascii=False)
+                results[qid] = entity_data
+            except IOError as e:
+                context.log.error(
+                    f"Could not write cache file for {qid}. Error: {e}"
+                )
+
+    return results
+
 
 def fetch_wikidata_entity(
     context: AssetExecutionContext,
@@ -247,7 +293,7 @@ def fetch_wikidata_entity(
         context.log.error(f"Malformed QID: {wikidata_id}")
         return None
 
-    cache_file_path = WIKIDATA_CACHE_DIR / f"{wikidata_id}.jsonl"
+    cache_file_path = WIKIDATA_CACHE_DIR / f"{wikidata_id}.json"
 
     if cache_file_path.exists():
         try:

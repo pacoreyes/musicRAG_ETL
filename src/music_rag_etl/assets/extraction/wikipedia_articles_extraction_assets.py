@@ -121,7 +121,7 @@ def create_wikipedia_articles_dataset(
                     "genres": genres,
                     "inception_year": article_payload["inception_year"],
                     "wikipedia_url": article_payload["wikipedia_url"],
-                    "wikidata_entity_url": f"{WIKIDATA_ENTITY_PREFIX_URL}wiki/{article_payload['wikidata_entity']}",
+                    "wikidata_entity_url": article_payload["wikidata_entity"],
                     "references_score": article_payload["references_score"],
                     "chunk_index": i + 1,
                     "total_chunks": total_chunks,
@@ -149,3 +149,8 @@ def create_wikipedia_articles_dataset(
     context.log.info("Cleaned up temporary cache files.")
 
     return WIKIPEDIA_ARTICLES_FILE
+
+"""
+one row in the source has wikipedia_url="", and it is skipped.
+"""
+

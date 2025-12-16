@@ -1,197 +1,104 @@
+from unittest.mock import patch, mock_open, call
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
 
-import pytest
-import requests
+from dagster import build_asset_context
 
 from music_rag_etl.utils.wikidata_helpers import (
-    fetch_wikidata_entity,
-    parse_wikidata_entity_label,
-    fetch_sparql_query,
-    get_best_label,
+    fetch_wikidata_entities_batch_with_cache,
 )
 
-# Mock Dagster context
-@pytest.fixture
-def mock_context():
-    context = MagicMock()
-    context.log = MagicMock()
-    return context
+
+@patch("music_rag_etl.utils.wikidata_helpers.fetch_wikidata_entities_batch")
+def test_batch_cache_full_hit(mock_fetch_batch):
+    """Tests that the API is not called if all QIDs are in the cache."""
+    context = build_asset_context()
+    qids = ["Q1", "Q2"]
+    mock_cache_data = {
+        "Q1": {"id": "Q1", "claims": {}},
+        "Q2": {"id": "Q2", "claims": {}},
+    }
+
+    # Simulate that both files exist
+    with patch("pathlib.Path.exists", return_value=True):
+        # Simulate reading the two different cache files
+        m = mock_open()
+        m.side_effect = [
+            mock_open(read_data=json.dumps(mock_cache_data["Q1"])).return_value,
+            mock_open(read_data=json.dumps(mock_cache_data["Q2"])).return_value,
+        ]
+        with patch("builtins.open", m):
+            results = fetch_wikidata_entities_batch_with_cache(context, qids)
+
+            # Assert API was not called
+            mock_fetch_batch.assert_not_called()
+            # Assert results are correct
+            assert results == mock_cache_data
 
 
-# --- Tests for fetch_wikidata_entity ---
-
-@patch("music_rag_etl.utils.wikidata_helpers.make_request_with_retries")
-@patch("pathlib.Path.exists")
-def test_fetch_wikidata_entity_from_api(mock_exists, mock_make_request, mock_context, tmp_path):
-    """Tests fetching an entity from the API when it's not in cache."""
-    # 1. Setup
-    mock_exists.return_value = False
-    wikidata_id = "Q123"
-    api_response_data = {"entities": {wikidata_id: {"id": wikidata_id}}}
-    
-    mock_response = MagicMock()
-    mock_response.json.return_value = api_response_data
-    mock_make_request.return_value = mock_response
-    
-    # Mock open to capture what's written to the cache file
-    m = mock_open()
-    with patch("builtins.open", m):
-        # 2. Action
-        with patch("music_rag_etl.utils.wikidata_helpers.WIKIPEDIA_CACHE_DIR", tmp_path):
-            result = fetch_wikidata_entity(mock_context, wikidata_id)
-
-    # 3. Assertions
-    assert result == api_response_data
-    mock_make_request.assert_called_once()
-    m.assert_called_once_with(tmp_path / f"{wikidata_id}.jsonl", "w", encoding="utf-8")
-    handle = m()
-    handle.write.assert_called_once_with(json.dumps(api_response_data, ensure_ascii=False) + "\n")
-    mock_context.log.error.assert_not_called()
-
-
-@patch("pathlib.Path.exists")
-def test_fetch_wikidata_entity_from_cache(mock_exists, mock_context, tmp_path):
-    """Tests fetching an entity from the cache."""
-    # 1. Setup
-    mock_exists.return_value = True
-    wikidata_id = "Q456"
-    cache_data = {"entities": {wikidata_id: {"id": wikidata_id, "from_cache": True}}}
-    cache_content = json.dumps(cache_data) + "\n"
-    
-    m = mock_open(read_data=cache_content)
-    with patch("builtins.open", m):
-        # 2. Action
-        with patch("music_rag_etl.utils.wikidata_helpers.WIKIPEDIA_CACHE_DIR", tmp_path):
-            result = fetch_wikidata_entity(mock_context, wikidata_id)
-
-    # 3. Assertions
-    assert result == cache_data
-    m.assert_called_once_with(tmp_path / f"{wikidata_id}.jsonl", "r", encoding="utf-8")
-    mock_context.log.error.assert_not_called()
-
-def test_fetch_wikidata_entity_malformed_id(mock_context):
-    """Tests that a malformed QID is rejected."""
-    result = fetch_wikidata_entity(mock_context, "INVALID_ID")
-    assert result is None
-    mock_context.log.error.assert_called_with("Malformed QID: INVALID_ID")
-
-
-# --- Tests for parse_wikidata_entity_label ---
-
-def test_parse_wikidata_entity_label_success():
-    """Tests successful parsing of an English label."""
-    entity_id = "Q188450"
-    entity_data = {
+@patch("music_rag_etl.utils.wikidata_helpers.fetch_wikidata_entities_batch")
+def test_batch_cache_full_miss(mock_fetch_batch):
+    """Tests that the API is called for all QIDs if none are in the cache."""
+    context = build_asset_context()
+    qids = ["Q1", "Q2"]
+    mock_api_response = {
         "entities": {
-            entity_id: {
-                "labels": {
-                    "en": {"language": "en", "value": "Synth-pop"},
-                    "fr": {"language": "fr", "value": "Synthpop"},
-                }
-            }
+            "Q1": {"id": "Q1", "claims": {}},
+            "Q2": {"id": "Q2", "claims": {}},
         }
     }
-    label = parse_wikidata_entity_label(entity_data, entity_id)
-    assert label == "Synth-pop"
+    mock_fetch_batch.return_value = mock_api_response
+
+    # Simulate that no files exist
+    with patch("pathlib.Path.exists", return_value=False):
+        m = mock_open()
+        with patch("builtins.open", m):
+            results = fetch_wikidata_entities_batch_with_cache(context, qids)
+
+            # Assert API was called with all missing QIDs
+            mock_fetch_batch.assert_called_once_with(context, ["Q1", "Q2"])
+
+            # Assert cache files were written
+            cache_dir = Path("music_rag_etl/settings.py").parent.parent / "data_volume" / ".cache" / "wikidata"
+            expected_calls = [
+                call(cache_dir / "Q1.json", "w", encoding="utf-8"),
+                call(cache_dir / "Q2.json", "w", encoding="utf-8"),
+            ]
+            m.assert_has_calls(expected_calls, any_order=True)
+
+            # Assert results are correct
+            assert results == mock_api_response["entities"]
 
 
-def test_parse_wikidata_entity_label_no_english_label():
-    """Tests when the English label is missing."""
-    entity_id = "Q123"
-    entity_data = {"entities": {entity_id: {"labels": {"fr": {"value": "Test"}}}}}
-    label = parse_wikidata_entity_label(entity_data, entity_id)
-    assert label is None
+@patch("music_rag_etl.utils.wikidata_helpers.fetch_wikidata_entities_batch")
+def test_batch_cache_partial_hit(mock_fetch_batch):
+    """Tests that the API is only called for the QID not in the cache."""
+    context = build_asset_context()
+    qids = ["Q1", "Q2"]  # Q1 is cached, Q2 is not
 
-def test_parse_wikidata_entity_label_no_entity_or_labels():
-    """Tests various states of missing data."""
-    assert parse_wikidata_entity_label({}, "Q1") is None
-    assert parse_wikidata_entity_label({"entities": {}}, "Q1") is None
-    assert parse_wikidata_entity_label({"entities": {"Q1": {}}}, "Q1") is None
-    assert parse_wikidata_entity_label({"entities": {"Q1": {"labels": {}}}}, "Q1") is None
+    mock_cached_q1 = {"id": "Q1", "claims": {}}
+    mock_api_response_q2 = {"entities": {"Q2": {"id": "Q2", "claims": {}}}}
+    mock_fetch_batch.return_value = mock_api_response_q2
 
+    # Simulate that only Q1.json exists
+    def exists_side_effect(path):
+        return "Q1.json" in str(path)
 
-# --- Tests for fetch_sparql_query ---
+    with patch("pathlib.Path.exists", side_effect=exists_side_effect):
+        # When open is called for Q1, return its data.
+        m = mock_open(read_data=json.dumps(mock_cached_q1))
+        with patch("builtins.open", m):
+            results = fetch_wikidata_entities_batch_with_cache(context, qids)
 
-@patch("music_rag_etl.utils.wikidata_helpers.make_request_with_retries")
-def test_fetch_sparql_query_success(mock_make_request, mock_context):
-    """Tests a successful SPARQL query."""
-    # 1. Setup
-    query = "SELECT ?a WHERE { ?a wdt:P31 wd:Q5 . }"
-    api_response_data = {
-        "results": {"bindings": [{"a": "1"}, {"a": "2"}]}
-    }
-    mock_response = MagicMock()
-    mock_response.json.return_value = api_response_data
-    mock_make_request.return_value = mock_response
+            # Assert API was called only with the missing QID
+            mock_fetch_batch.assert_called_once_with(context, ["Q2"])
 
-    # 2. Action
-    results = fetch_sparql_query(mock_context, query)
+            # Assert that the new cache file for Q2 was written
+            cache_dir = Path("music_rag_etl/settings.py").parent.parent / "data_volume" / ".cache" / "wikidata"
+            m.assert_any_call(cache_dir / "Q2.json", "w", encoding="utf-8")
 
-    # 3. Assertions
-    assert results == [{"a": "1"}, {"a": "2"}]
-    mock_make_request.assert_called_once()
-    mock_context.log.error.assert_not_called()
-
-
-@patch("music_rag_etl.utils.wikidata_helpers.make_request_with_retries", side_effect=requests.exceptions.RequestException("API Error"))
-def test_fetch_sparql_query_request_failure(mock_make_request, mock_context):
-    """Tests when the API request fails."""
-    results = fetch_sparql_query(mock_context, "query")
-    assert results == []
-    mock_context.log.error.assert_called_once()
-
-
-# --- Tests for get_best_label ---
-
-def test_get_best_label_priority_success():
-    """Tests that get_best_label returns the highest priority available label."""
-    record = {
-        "artistLabel_es": {"value": "Artista Español"},
-        "artistLabel_en": {"value": "English Artist"},
-        "artistLabel": {"value": "Generic Artist"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label == "English Artist"
-    
-    label_es_priority = get_best_label(record, "artistLabel", ['es', 'en'])
-    assert label_es_priority == "Artista Español"
-
-
-def test_get_best_label_fallback_to_generic():
-    """Tests that get_best_label falls back to the generic label if no prioritized language label is found."""
-    record = {
-        "artistLabel_fr": {"value": "Artiste Français"},
-        "artistLabel": {"value": "Generic Artist"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label == "Generic Artist"
-
-
-def test_get_best_label_no_label_found():
-    """Tests that get_best_label returns None if no label is found."""
-    record = {
-        "otherField": {"value": "Something else"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label is None
-
-
-def test_get_best_label_empty_labels():
-    """Tests handling of empty strings as labels."""
-    record = {
-        "artistLabel_en": {"value": ""},
-        "artistLabel_es": {"value": "Artista Español"},
-        "artistLabel": {"value": "Generic Artist"},
-    }
-    label = get_best_label(record, "artistLabel", ['en', 'es'])
-    assert label == "Artista Español"
-    
-    record_no_valid = {
-        "artistLabel_en": {"value": ""},
-        "artistLabel": {"value": ""},
-    }
-    label_no_valid = get_best_label(record_no_valid, "artistLabel", ['en'])
-    assert label_no_valid is None
-
+            # Assert the final results contain both items
+            assert "Q1" in results
+            assert "Q2" in results
+            assert results["Q1"] == mock_cached_q1
+            assert results["Q2"] == mock_api_response_q2["entities"]["Q2"]

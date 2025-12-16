@@ -9,7 +9,7 @@ from music_rag_etl.utils.wikidata_helpers import (
     format_artist_record_from_sparql,
 )
 
-from music_rag_etl.settings import PATH_TEMP, DECADES_TO_EXTRACT, ARTIST_INDEX_PRE_CLEAN
+from music_rag_etl.settings import PATH_DATASETS, DECADES_TO_EXTRACT, ARTIST_INDEX_PRE_CLEAN
 
 
 def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> Callable:
@@ -26,7 +26,7 @@ def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> 
     """
     start_year, end_year = year_range
     output_filename = f"artist_index_{decade}.jsonl"
-    output_path = PATH_TEMP / output_filename
+    output_path = PATH_DATASETS / output_filename
 
     @asset(name=f"artist_index_{decade}")
     def _extraction_asset(context: AssetExecutionContext) -> str:
@@ -69,9 +69,9 @@ def merge_artist_index(context: AssetExecutionContext) -> str:
     """
     Merges all decade-specific artist JSONL files into a single artist_index.jsonl.
     """
-    output_path = PATH_TEMP / ARTIST_INDEX_PRE_CLEAN
+    output_path = PATH_DATASETS / ARTIST_INDEX_PRE_CLEAN
     input_paths = [
-        PATH_TEMP / f"artist_index_{decade}.jsonl" for decade in DECADES_TO_EXTRACT
+        PATH_DATASETS / f"artist_index_{decade}.jsonl" for decade in DECADES_TO_EXTRACT
     ]
 
     merge_jsonl_files(input_paths, output_path)

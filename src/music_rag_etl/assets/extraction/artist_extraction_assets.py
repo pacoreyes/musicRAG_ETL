@@ -1,0 +1,146 @@
+import polars as pl
+from dagster import asset, AssetExecutionContext, Config
+from typing import List, Dict, Any, Optional
+
+from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE
+from music_rag_etl.utils.io_helpers import chunk_list, save_to_jsonl
+from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
+from music_rag_etl.utils.lastfm_helpers import fetch_lastfm_data_with_cache
+from music_rag_etl.utils.wikidata_helpers import (
+    fetch_wikidata_entities_batch_with_cache,
+    parse_wikidata_entity_label,
+)
+
+
+def _parse_artist_country(entity_data: Dict[str, Any]) -> Optional[str]:
+    """Parses country of origin (P495) or citizenship (P27) from a Wikidata entity."""
+    claims = entity_data.get("claims", {})
+    # Property P495: country of origin
+    if "P495" in claims:
+        main_snak = claims["P495"][0].get("mainsnak", {})
+        if main_snak.get("snaktype") == "value":
+            country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
+            # This would ideally be resolved to a label, but for now, we return the ID
+            # In a real scenario, a secondary lookup or pre-loaded map would be used.
+            return country_id
+    # Property P27: country of citizenship
+    if "P27" in claims:
+        main_snak = claims["P27"][0].get("mainsnak", {})
+        if main_snak.get("snaktype") == "value":
+            country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
+            return country_id
+    return None
+
+
+def _parse_artist_aliases(entity_data: Dict[str, Any]) -> List[str]:
+    """Parses English aliases from a Wikidata entity."""
+    aliases = entity_data.get("aliases", {}).get("en", [])
+    return [alias["value"] for alias in aliases]
+
+
+def _enrich_artist_batch(
+    artist_batch: List[Dict[str, Any]],
+    context: AssetExecutionContext,
+    api_key: str,
+) -> List[Dict[str, Any]]:
+    """Worker function to enrich a batch of artists with Wikidata and Last.fm data."""
+    enriched_batch = []
+    qids_in_batch = [artist["wikidata_id"] for artist in artist_batch]
+
+    # 1. Fetch all Wikidata entities for the batch using the caching helper
+    wikidata_entities = fetch_wikidata_entities_batch_with_cache(context, qids_in_batch)
+
+    # 2. Process each artist in the batch
+    for artist in artist_batch:
+        qid = artist["wikidata_id"]
+        artist_name = artist["artist"]
+
+        # 3. Get Last.fm data using its caching helper
+        lastfm_data = fetch_lastfm_data_with_cache(context, artist_name, api_key)
+
+        # Extract Last.fm info
+        tags = []
+        similar_artists = []
+        if lastfm_data and lastfm_data.get("artist"):
+            tags = [
+                tag["name"]
+                for tag in lastfm_data["artist"].get("tags", {}).get("tag", [])
+            ]
+            similar_artists = [
+                sim["name"]
+                for sim in lastfm_data["artist"].get("similar", {}).get("artist", [])
+            ]
+
+        # Extract Wikidata info
+        wikidata_info = wikidata_entities.get(qid, {})
+        country = _parse_artist_country(wikidata_info)
+        aliases = _parse_artist_aliases(wikidata_info)
+
+        final_record = {
+            "id": qid,
+            "name": artist_name,
+            "aliases": aliases,
+            "country": country,
+            "genres": artist["genres"],  # Direct copy as instructed
+            "tags": tags,
+            "similar_artists": similar_artists,
+        }
+        enriched_batch.append(final_record)
+
+    return enriched_batch
+
+
+@asset(
+    name="artists_extraction_from_artist_index",
+    deps=["artist_index_with_relevance"],
+    description="Creates artist dataset with enriched details from Wikidata and Last.fm.",
+)
+def artists_extraction_from_artist_index(context: AssetExecutionContext):
+    """
+    Loads artists from the index, enriches them with data from Wikidata (country, aliases)
+    and Last.fm (tags, similar artists) using concurrent, cached API calls, and saves
+    the result to a new JSONL file.
+    """
+    context.log.info("Starting artist enrichment process.")
+    api_key = context.resources.api_config["lastfm_api_key"]
+
+    # 1. Load upstream data
+    artist_df = pl.read_ndjson(ARTIST_INDEX)
+    artists_to_process = artist_df.to_dicts()
+    context.log.info(f"Loaded {len(artists_to_process)} artists to process.")
+
+    # 2. Chunk data for concurrent processing
+    artist_batches = list(chunk_list(artists_to_process, BATCH_SIZE))
+    context.log.info(
+        f"Split artists into {len(artist_batches)} batches of size {BATCH_SIZE}."
+    )
+
+    # 3. Define a partial function for the worker to pass extra args
+    from functools import partial
+
+    worker_fn = partial(_enrich_artist_batch, context=context, api_key=api_key)
+
+    # 4. Process batches concurrently
+    nested_results = process_items_concurrently(
+        items=artist_batches, process_func=worker_fn
+    )
+
+    # 5. Flatten, deduplicate, and save results
+    all_results = [item for sublist in nested_results for item in sublist]
+    context.log.info(f"Successfully enriched {len(all_results)} artists.")
+
+    seen_ids = set()
+    unique_results = []
+    for record in all_results:
+        if record["id"] not in seen_ids:
+            unique_results.append(record)
+            seen_ids.add(record["id"])
+
+    context.log.info(
+        f"Deduplicated results from {len(all_results)} to {len(unique_results)}."
+    )
+
+    save_to_jsonl(unique_results, ARTISTS_FILE)
+    context.log.info(f"Successfully saved unique artist data to {ARTISTS_FILE}.")
+
+    return str(ARTISTS_FILE)
