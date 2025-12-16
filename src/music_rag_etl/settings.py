@@ -34,7 +34,7 @@ LASTFM_CACHE_DIR = DATA_DIR / ".cache" / "last_fm"
 PATH_TEMP = DATA_DIR / ".temp"
 
 # --- Vector DB ---
-CHROMA_DB_PATH = DATA_DIR / "db" / "music_rag_vector"
+CHROMA_DB_PATH = DATA_DIR / "vector_db"
 
 # ==============================================================================
 #  EXPLICIT FILE PATHS
@@ -61,6 +61,7 @@ TRACKS_FILE = DATA_DIR / "tracks.jsonl"
 WIKIDATA_API_URL = "https://www.wikidata.org/w/api.php"
 WIKIDATA_SPARQL_URL = "https://query.wikidata.org/sparql"
 WIKIDATA_ENTITY_URL = "http://www.wikidata.org/entity/"
+WIKIDATA_ENTITY_PREFIX_URL = "http://www.wikidata.org/wiki/"
 USER_AGENT = "musicRAG_ETL (reyes@b-tu.de)"
 WIKIDATA_HEADERS = {
     "User-Agent": USER_AGENT,

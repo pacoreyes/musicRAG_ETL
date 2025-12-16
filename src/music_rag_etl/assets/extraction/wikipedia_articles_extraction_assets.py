@@ -1,147 +1,83 @@
-import json
-import urllib.parse
-import random
-import time
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional, Union, Dict, Any
+from typing import Dict, Any, Tuple
 
 import polars as pl
 import wikipediaapi
-from dagster import asset, AssetExecutionContext, AssetIn
+from dagster import asset, AssetExecutionContext
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from music_rag_etl.settings import (
-    WIKIPEDIA_CACHE_DIR,
     USER_AGENT,
     WIKIPEDIA_ARTICLES_FILE,
     ARTIST_INDEX,
+    GENRES_FILE,
+    PATH_TEMP,
+    WIKIDATA_ENTITY_PREFIX_URL,
 )
-from music_rag_etl.utils.transformation_helpers import clean_text, clean_text_string, convert_year_from_iso, normalize_relevance_score
-from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
-from music_rag_etl.utils.wikipedia_helpers import get_references
-from music_rag_etl.utils.io_helpers import save_to_jsonl
+from music_rag_etl.utils.io_helpers import save_to_jsonl, merge_jsonl_files
+from music_rag_etl.utils.transformation_helpers import clean_text_string
+from music_rag_etl.utils.wikipedia_helpers import fetch_artist_article_payload
 
 
-def get_wikipedia_page(
-    context: AssetExecutionContext,
-    wiki_api: wikipediaapi.Wikipedia,
-    url: str,
-    wikidata_id: str
-) -> str | None:
-    """
-    Fetches a Wikipedia page, either from local text cache or the API.
-    """
-    # Check if input is violated
-    if not url or "/wiki/" not in url:
-        return None
-    # Define path of the cache file
-    cache_file_path = WIKIPEDIA_CACHE_DIR / f"{wikidata_id}.txt"
-
-    # Try cache
-    if cache_file_path.exists():
-        try:
-            with open(cache_file_path, 'r', encoding='utf-8') as file:
-                cached_text = file.read()
-                return cached_text
-        except Exception as e:
-            context.log.error(f"Failed to read cache for {wikidata_id}, falling back to API: {e}")
-
-    # Fetch from API
-    try:
-        raw_title = url.split("/wiki/")[-1]
-        decoded_title = urllib.parse.unquote(raw_title)
-
-        page = wiki_api.page(decoded_title)
-
-        if page.exists():
-            # Ensure Directory exists
-            WIKIPEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-            # Save to cache
-            with open(cache_file_path, 'w', encoding='utf-8') as file:
-                file.write(page.text)
-            # Gentle delay ;)
-            time.sleep(random.uniform(0.1, 0.5))
-            return page.text
-
-    except Exception as e:
-        context.log.error(f"Error fetching Wikipedia URL {url}: {e}")
-    return None
-
-
-def _fetch_and_process_artist_wikipedia(
-    context: AssetExecutionContext,
-    artist_row: Dict[str, Any],
-    wiki_api: wikipediaapi.Wikipedia,
-) -> Optional[Dict[str, Any]]:
-    """
-    Worker function to fetch Wikipedia page text and references for a single artist.
-    """
-    wikipedia_url = artist_row.get("wikipedia_url")
-    wikidata_id = artist_row.get("wikidata_id")
-
-    if not wikipedia_url:
-        return None
-
-    page_text = get_wikipedia_page(context, wiki_api, wikipedia_url, wikidata_id)
-    if not page_text:
-        return None
-
-    references_count = get_references(wikipedia_url)
-
-    processed_row = artist_row.copy()
-    processed_row["page_text"] = page_text
-    processed_row["references_count"] = references_count
-    return processed_row
+def _clean_cache_directory(cache_dir: Path):
+    """Ensures the cache directory is empty."""
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
 
 @asset(
-    name="fetch_raw_wikipedia_articles",
-    deps="artist_index_with_relevance2",
-    description="Fetch raw Wikipedia article text and cache it from the Artist index.",
+    name="create_wikipedia_articles_dataset",
+    deps=["genres_extraction_from_artist_index"],
+    description="Fetch raw Wikipedia article text, split them in chunks and enrich them with metadata.",
 )
-def fetch_raw_wikipedia_articles(context: AssetExecutionContext) -> pl.DataFrame:
-
-    context.log.info(f"Loading artist index from Artist Index")
+def create_wikipedia_articles_dataset(
+    context: AssetExecutionContext,
+) -> Path:
+    """
+    Full pipeline: load artist index and genre labels, then for each artist,
+    fetch and cache the raw article, chunk it, enrich metadata, and save
+    incrementally to a JSONL file.
+    """
+    context.log.info("Loading artist index and genres lookup.")
     artist_df = pl.read_ndjson(ARTIST_INDEX)
-
-    wiki_api = wikipediaapi.Wikipedia(user_agent=USER_AGENT, language='en', timeout=30)
-
-    # Ensure the cache directory exists
-    WIKIPEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    rows_to_process = [
-        row for row in artist_df.to_dicts() if row.get("wikipedia_url")
-    ]
-
-    context.log.info(f"Fetching {len(rows_to_process)} Wikipedia articles concurrently...")
-
-    results = process_items_concurrently(
-        items=rows_to_process,
-        process_func=lambda row: _fetch_and_process_artist_wikipedia(
-            context, row, wiki_api
-        ),
-        max_workers=5,
+    genres_df = pl.read_ndjson(GENRES_FILE)
+    genre_lookup = dict(
+        zip(genres_df["wikidata_id"].to_list(), genres_df["genre_label"].to_list())
     )
 
-    # Filter out None results from failed fetches
-    successful_results = [res for res in results if res is not None]
+    wiki_api = wikipediaapi.Wikipedia(user_agent=USER_AGENT, language="en", timeout=30)
+    
+    _clean_cache_directory(PATH_TEMP)
+    context.log.info(f"Cleaned and prepared cache directory at {PATH_TEMP}")
 
-    return pl.DataFrame(successful_results)
+    rows_to_process = [row for row in artist_df.to_dicts() if row.get("wikipedia_url")]
 
+    # De-duplicate rows based on the wikipedia_url to prevent processing the same article twice
+    seen_urls = set()
+    unique_rows_to_process = []
+    for row in rows_to_process:
+        if row["wikipedia_url"] not in seen_urls:
+            unique_rows_to_process.append(row)
+            seen_urls.add(row["wikipedia_url"])
+    
+    total_rows = len(unique_rows_to_process)
+    context.log.info(
+        f"Found {len(rows_to_process)} total rows, "
+        f"de-duplicated to {total_rows} unique wikipedia articles."
+    )
+    
+    # Prepare items with their designated temporary file path
+    items_to_process = [
+        (i, row, PATH_TEMP / f"{i}.jsonl")
+        for i, row in enumerate(unique_rows_to_process)
+    ]
 
-@asset(
-    name="chunk_and_enrich_articles",
-    deps="fetch_raw_wikipedia_articles",
-    description="Chunks articles and enriches them with metadata.",
-)
-def chunk_and_enrich_articles(
-    context: AssetExecutionContext, raw_wikipedia_articles: pl.DataFrame
-) -> list:
-    """
-    Takes a DataFrame of raw articles, chunks them, and enriches each chunk with metadata.
-    """
-    context.log.info(f"Chunking and enriching Wikipedia articles...")
+    context.log.info(
+        f"Starting concurrent fetching and processing of {total_rows} Wikipedia articles..."
+    )
 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -150,82 +86,66 @@ def chunk_and_enrich_articles(
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
-    all_chunks = []
-    for row in raw_wikipedia_articles.to_dicts():
-        cleaned_article = clean_text_string(row["page_text"])
+    def process_artist_to_temp_file(item: Tuple[int, Dict[str, Any], Path]):
+        """
+        Worker function: fetches an article, processes it, and writes chunks to a temporary JSONL file.
+        """
+        _, artist_row, temp_file_path = item
+        article_payload = fetch_artist_article_payload(
+            context=context,
+            wiki_api=wiki_api,
+            artist_row=artist_row,
+            genre_lookup=genre_lookup,
+        )
+
+        if not article_payload or not article_payload.get("page_text"):
+            return
+
+        cleaned_article = clean_text_string(article_payload["page_text"])
         chunks = text_splitter.split_text(cleaned_article)
         total_chunks = len(chunks)
 
-        # Clean genres
-        cleaned_genres = [clean_text_string(g) for g in row["genres"]] if row["genres"] else []
-        genre_str = ", ".join(cleaned_genres) if cleaned_genres else "Unknown"
+        genres = article_payload.get("genres") or []
+        genre_header = genres[0] if genres else "N/A"
 
-        # Safely get inception year
-        inception_year = None
-        if row["inception_year"]:
-            try:
-                converted_year = convert_year_from_iso(row["inception_year"])
-                if converted_year:
-                    inception_year = int(converted_year)
-            except (ValueError, TypeError):
-                context.log.warning(f"Could not convert inception year for {row['artist']} ({row['wikidata_id']}): {row['inception_year']}")
-
-
+        artist_chunks = []
         for i, chunk_text in enumerate(chunks):
             enriched_text = (
-                f"Title: {row['artist']}\n"
-                f"Genre: {genre_str}\n"
+                f"Title: {article_payload['artist']}\n"
+                f"Genre: {genre_header}\n"
                 f"Content: {chunk_text}"
             )
-            all_chunks.append(
-                {
-                    "metadata": {
-                        "artist_name": row["artist"],
-                        "genre": cleaned_genres,
-                        "inception_year": inception_year,
-                        "wikipedia_url": row["wikipedia_url"],
-                        "wikidata_entity": row["wikidata_id"],
-                        "references_count": row["references_count"],
-                        "chunk_index": i,
-                        "total_chunks": total_chunks,
-                    },
-                    "article": enriched_text,
-                }
-            )
-
-    return all_chunks
-
-
-@asset(
-    name="wikipedia_articles_file",
-    deps=["chunk_and_enrich_articles"],
-    description="Calculates final relevance score and saves articles to a file.",
-)
-def wikipedia_articles_file(
-    context: AssetExecutionContext, enriched_chunked_articles: list
-) -> Path:
-    """
-    Takes the enriched chunks, calculates the final relevance score,
-    and saves the result to a JSONL file.
-    """
-    if not enriched_chunked_articles:
-        context.log.warning("No articles to process.")
-        return WIKIPEDIA_ARTICLES_FILE
+            chunk_record = {
+                "metadata": {
+                    "artist_name": article_payload['artist'],
+                    "genres": genres,
+                    "inception_year": article_payload["inception_year"],
+                    "wikipedia_url": article_payload["wikipedia_url"],
+                    "wikidata_entity_url": f"{WIKIDATA_ENTITY_PREFIX_URL}wiki/{article_payload['wikidata_entity']}",
+                    "references_score": article_payload["references_score"],
+                    "chunk_index": i + 1,
+                    "total_chunks": total_chunks,
+                },
+                "article": enriched_text,
+            }
+            artist_chunks.append(chunk_record)
         
-    # Extract all references_count to determine min/max for normalization
-    references_counts = [d['metadata']['references_count'] for d in enriched_chunked_articles if 'references_count' in d['metadata']]
-    min_refs = min(references_counts) if references_counts else 0
-    max_refs = max(references_counts) if references_counts else 0
+        if artist_chunks:
+            save_to_jsonl(artist_chunks, temp_file_path)
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        list(executor.map(process_artist_to_temp_file, items_to_process))
+
+    context.log.info("Concurrent processing finished. Merging temporary files...")
+
+    # Merge temporary files in order
+    temp_files_in_order = sorted(PATH_TEMP.glob("*.jsonl"), key=lambda f: int(f.stem))
+    merge_jsonl_files(temp_files_in_order, WIKIPEDIA_ARTICLES_FILE)
     
-    final_data = []
-    for record in enriched_chunked_articles:
-        raw_references = record['metadata'].get('references_count', 0)
-        relevance_score = normalize_relevance_score(raw_references, min_refs, max_refs)
-        
-        record['metadata']['relevance_score'] = relevance_score
-        final_data.append(record)
+    context.log.info(f"Successfully merged {len(temp_files_in_order)} files into {WIKIPEDIA_ARTICLES_FILE}.")
 
-    save_to_jsonl(final_data, WIKIPEDIA_ARTICLES_FILE)
+    # Clean up temporary files
+    _clean_cache_directory(PATH_TEMP)
+    context.log.info("Cleaned up temporary cache files.")
 
-    context.log.info(f"Successfully saved {len(final_data)} article chunks to {WIKIPEDIA_ARTICLES_FILE}")
     return WIKIPEDIA_ARTICLES_FILE

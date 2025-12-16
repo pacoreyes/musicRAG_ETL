@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 import polars as pl
 from dagster import asset, AssetExecutionContext
@@ -75,4 +75,3 @@ def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
 
     context.log.info(f"Successfully saved {len(results)} genres to {GENRES_FILE}")
     return GENRES_FILE
-

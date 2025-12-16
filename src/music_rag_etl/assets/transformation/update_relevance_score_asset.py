@@ -23,7 +23,7 @@ def artist_index_with_relevance() -> Path:
         pathlib.Path: The path to the updated artist index file.
     """
     # Step 1: Load the artist index
-    df = pl.read_ndjson(ARTIST_INDEX_PRE_CLEAN)
+    df = pl.read_ndjson(ARTIST_INDEX)
 
     # Cast 'linkcount' to integer type for calculations
     df = df.with_columns(pl.col("linkcount").cast(pl.Int64))

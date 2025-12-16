@@ -8,7 +8,7 @@ from dagster import AssetExecutionContext
 from music_rag_etl import settings
 from music_rag_etl.settings import (
     WIKIDATA_ENTITY_URL,
-    WIKIPEDIA_CACHE_DIR,
+    WIKIDATA_CACHE_DIR,
     USER_AGENT,
     WIKIDATA_SPARQL_URL,
     WIKIDATA_HEADERS,
@@ -247,7 +247,7 @@ def fetch_wikidata_entity(
         context.log.error(f"Malformed QID: {wikidata_id}")
         return None
 
-    cache_file_path = WIKIPEDIA_CACHE_DIR / f"{wikidata_id}.jsonl"
+    cache_file_path = WIKIDATA_CACHE_DIR / f"{wikidata_id}.jsonl"
 
     if cache_file_path.exists():
         try:

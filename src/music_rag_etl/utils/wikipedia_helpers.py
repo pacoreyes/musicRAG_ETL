@@ -2,51 +2,112 @@
 Utility functions for interacting with Wikipedia.
 """
 
-from typing import Optional
-import requests
-from bs4 import BeautifulSoup
 import logging
+import random
+import time
+import urllib.parse
+from typing import Optional, Dict, Any
+
+import wikipediaapi
+from dagster import AssetExecutionContext
+
+from music_rag_etl.settings import WIKIPEDIA_CACHE_DIR, WIKIDATA_ENTITY_URL
+from music_rag_etl.utils.transformation_helpers import map_genre_ids_to_labels
 
 # Configure logging for this module
 logger = logging.getLogger(__name__)
 
 
-def get_references(wikipedia_url: str) -> int:
+def get_wikipedia_page(
+    context: AssetExecutionContext,
+    wiki_api: wikipediaapi.Wikipedia,
+    url: str,
+    wikidata_id: str,
+) -> str | None:
     """
-    Fetches the number of external links (references) from a Wikipedia page.
-
-    Args:
-        wikipedia_url: The full URL of the Wikipedia page.
-
-    Returns:
-        The number of external links found on the page, or 0 if an error occurs.
+    Fetches a Wikipedia page, either from local text cache or the API.
     """
-    if not wikipedia_url or not wikipedia_url.startswith("http"):
-        logger.warning(f"Invalid Wikipedia URL provided: {wikipedia_url}")
-        return 0
+    if not url or "/wiki/" not in url:
+        return None
+
+    cache_file_path = WIKIPEDIA_CACHE_DIR / f"{wikidata_id}.txt"
+
+    if cache_file_path.exists():
+        try:
+            with open(cache_file_path, "r", encoding="utf-8") as file:
+                cached_text = file.read()
+                return cached_text
+        except Exception as exc:  # noqa: BLE001
+            context.log.error(
+                "Failed to read cache for %s, falling back to API: %s",
+                wikidata_id,
+                exc,
+            )
 
     try:
-        response = requests.get(wikipedia_url, timeout=10)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        soup = BeautifulSoup(response.text, "html.parser")
+        raw_title = url.split("/wiki/")[-1]
+        decoded_title = urllib.parse.unquote(raw_title)
 
-        # Find the "External links" section and count the links within it
-        # This is a common pattern, but might need adjustment for specific Wikipedia templates
-        external_links_heading = soup.find("span", {"id": "External_links"})
-        if external_links_heading:
-            # Navigate up to the section's parent (e.g., <h2>) and then down to list items
-            section = external_links_heading.find_parent("h2").find_next_sibling()
-            if section:
-                # Count <li> elements within the section, which typically contain the links
-                return len(section.find_all("li"))
-        
-        # Fallback: count all external links in the page if specific section not found
-        # This might be less precise but captures general external references
-        return len(soup.find_all("a", class_="external text"))
+        page = wiki_api.page(decoded_title)
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error fetching Wikipedia page {wikipedia_url}: {e}")
-        return 0
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while parsing Wikipedia page {wikipedia_url}: {e}")
-        return 0
+        if page.exists():
+            WIKIPEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+            with open(cache_file_path, "w", encoding="utf-8") as file:
+                file.write(page.text)
+            time.sleep(random.uniform(0.1, 0.5))
+            return page.text
+
+    except Exception as exc:  # noqa: BLE001
+        context.log.error("Error fetching Wikipedia URL %s: %s", url, exc)
+    return None
+
+
+def fetch_artist_article_payload(
+    context: AssetExecutionContext,
+    wiki_api: wikipediaapi.Wikipedia,
+    artist_row: Dict[str, Any],
+    genre_lookup: Dict[str, str],
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetches and prepares a single artist's Wikipedia article payload.
+    """
+    wikipedia_url = artist_row.get("wikipedia_url")
+    wikidata_id = artist_row.get("wikidata_id")
+
+    if not wikipedia_url:
+        return None
+
+    page_text = get_wikipedia_page(context, wiki_api, wikipedia_url, wikidata_id)
+    if not page_text:
+        return None
+
+    genre_ids = artist_row.get("genres") or []
+    mapped_genres = map_genre_ids_to_labels(genre_ids, genre_lookup)
+    if genre_ids and not mapped_genres:
+        context.log.warning(
+            "No genre labels found for artist %s (%s).",
+            artist_row.get("artist"),
+            wikidata_id,
+        )
+
+    inception_raw = artist_row.get("inception")
+    inception_year = None
+    if inception_raw:
+        year_str = str(inception_raw)[:4]
+        inception_year = int(year_str) if year_str.isdigit() else "N/A"
+
+    wikidata_entity = (
+        f"{WIKIDATA_ENTITY_URL}{wikidata_id}" if wikidata_id else None
+    )
+
+    return {
+        "artist": artist_row.get("artist"),
+        "wikidata_id": wikidata_id,
+        "wikipedia_url": wikipedia_url,
+        "genres": mapped_genres,
+        "inception_year": inception_year,
+        "page_text": page_text,
+        "references_score": artist_row.get("relevance_score"),
+        "wikidata_entity": wikidata_entity,
+    }

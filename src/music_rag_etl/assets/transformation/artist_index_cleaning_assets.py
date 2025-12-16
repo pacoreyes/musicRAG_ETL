@@ -29,6 +29,8 @@ def deduplicate_artists(context: AssetExecutionContext) -> str:
         lf
         .sort("inception", descending=False)  # Sort by inception date ascending (oldest first)
         .unique(subset=["wikidata_id"], keep="first")  # Keep the first unique wikidata_id
+        .unique(subset=["wikipedia_url"], keep="first")  # Keep the first unique wikidata_id
+        .unique(subset=["artist"], keep="first")  # Keep the first unique wikidata_id
     )
 
     # 3. Collect & Save

@@ -1,5 +1,6 @@
 import polars as pl
-from typing import List, Optional, Dict
+import re
+from typing import List, Dict
 
 
 def clean_text(df: pl.DataFrame, col_name: str) -> pl.DataFrame:
@@ -59,44 +60,24 @@ def extract_unique_ids_from_column(
             
     return sorted(list(unique_ids))  # Return sorted list for consistent output
 
-import re
 
-def normalize_relevance_score(
-    raw_references: int, min_refs: int, max_refs: int
-) -> float:
+def map_genre_ids_to_labels(
+    genre_ids: list[str] | None, genre_lookup: dict[str, str]
+) -> list[str]:
     """
-    Normalizes a raw reference count to a score between 0 and 1.
-
-    Args:
-        raw_references: The raw number of references for an article.
-        min_refs: The minimum raw reference count found across all articles.
-        max_refs: The maximum raw reference count found across all articles.
-
-    Returns:
-        A normalized relevance score (float between 0 and 1).
+    Maps genre QIDs to their labels using a lookup dictionary.
     """
-    if max_refs == min_refs:
-        return 0.5  # Default to mid-score if no variance
-    return (raw_references - min_refs) / (max_refs - min_refs)
+    if not genre_ids:
+        return []
+    return [genre_lookup[g_id] for g_id in genre_ids if g_id in genre_lookup]
 
 
-def convert_year_from_iso(iso_date: str) -> Optional[str]:
+def map_genre_labels_to_ids(
+    genre_labels: list[str] | None, label_to_id_lookup: dict[str, str]
+) -> list[str]:
     """
-    Converts an ISO date string (e.g., "1999-12-31T00:00:00Z") to its year.
-    If the date is just a year (e.g., "1999"), it returns the year.
-    Returns None if the format is not recognized or input is not a string.
+    Maps genre labels to their QIDs using a lookup dictionary.
     """
-    if not isinstance(iso_date, str):
-        return None
-    
-    # Try to extract year from full ISO format (YYYY-MM-DD...)
-    match = re.match(r"^(\d{4})-\d{2}-\d{2}", iso_date)
-    if match:
-        return match.group(1)
-    
-    # If it's just a year string
-    if re.match(r"^\d{4}$", iso_date):
-        return iso_date
-
-    return None
-
+    if not genre_labels:
+        return []
+    return [label_to_id_lookup[label] for label in genre_labels if label in label_to_id_lookup]

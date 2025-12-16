@@ -1,7 +1,31 @@
 import json
+import shutil
+import threading
 from pathlib import Path
 from typing import List, Dict
-import shutil
+
+
+def initialize_jsonl_file(file_path: Path):
+    """
+    Creates an empty file, overwriting it if it exists.
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, "w") as f:
+        pass  # Just to create or truncate the file
+
+
+def append_record_to_jsonl(record: Dict, file_path: Path, lock: threading.Lock):
+    """
+    Appends a single dictionary record to a JSONL file in a thread-safe manner.
+
+    Args:
+        record: The dictionary record to save.
+        file_path: The Path object for the output file.
+        lock: A threading.Lock object to ensure safe concurrent writes.
+    """
+    with lock:
+        with open(file_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def save_to_jsonl(data: List[Dict], file_path: Path):
@@ -44,3 +68,15 @@ def chunk_list(items: List, size: int):
     """
     for i in range(0, len(items), size):
         yield items[i : i + size]
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def jsonl_writer(file_path: Path):
+    """A context manager to write to a JSONL file line by line."""
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(file_path, "w", encoding="utf-8") as f:
+        def writer(d: dict):
+            f.write(json.dumps(d, ensure_ascii=False) + "\n")
+        yield writer

@@ -1,89 +1,111 @@
-
-import unittest
-from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
+from unittest.mock import patch, MagicMock, call
+from concurrent.futures import ThreadPoolExecutor
+
 import polars as pl
 from dagster import build_asset_context
-import wikipediaapi
 
-from music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets import get_wikipedia_page, fetch_raw_wikipedia_articles
-from music_rag_etl.settings import WIKIPEDIA_CACHE_DIR
+from music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets import (
+    create_wikipedia_articles_dataset,
+)
+from music_rag_etl.settings import WIKIDATA_ENTITY_PREFIX_URL, PATH_TEMP
 
-class TestWikipediaArticlesExtractionAssets(unittest.TestCase):
 
-    def setUp(self):
-        self.context = build_asset_context()
-        self.wiki_api = MagicMock()
+@patch("pathlib.Path.glob")
+@patch(
+    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets._clean_cache_directory"
+)
+@patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.merge_jsonl_files")
+@patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.save_to_jsonl")
+@patch(
+    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.fetch_artist_article_payload"
+)
+@patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.pl.read_ndjson")
+@patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.wikipediaapi.Wikipedia")
+@patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.ThreadPoolExecutor")
+def test_create_wikipedia_articles_dataset_temp_file_workflow(
+    mock_executor: MagicMock,
+    mock_wiki_api: MagicMock,
+    mock_read_ndjson: MagicMock,
+    mock_fetch_payload: MagicMock,
+    mock_save_to_jsonl: MagicMock,
+    mock_merge_jsonl: MagicMock,
+    mock_clean_cache: MagicMock,
+    mock_glob: MagicMock,
+):
+    """
+    Tests the create_wikipedia_articles_dataset asset workflow using the temporary file strategy.
+    """
+    # --- Mocks Setup ---
+    context = build_asset_context()
 
-    @patch("builtins.open", new_callable=mock_open, read_data="cached text")
-    def test_get_wikipedia_page_from_cache(self, mock_file):
-        WIKIPEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        with patch.object(Path, 'exists') as mock_exists:
-            mock_exists.return_value = True
-            page_text = get_wikipedia_page(self.context, self.wiki_api, "http://en.wikipedia.org/wiki/Test_Page", "Q123")
-            self.assertEqual(page_text, "cached text")
-            mock_file.assert_called_with(WIKIPEDIA_CACHE_DIR / "Q123.txt", 'r', encoding='utf-8')
+    # Mock ThreadPoolExecutor to run sequentially in tests
+    mock_executor.return_value.__enter__.return_value.map = map
 
-    @patch("builtins.open", new_callable=mock_open)
-    @patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.time.sleep", return_value=None)
-    def test_get_wikipedia_page_from_api(self, mock_sleep, mock_file):
-        with patch.object(Path, 'exists') as mock_exists:
-            mock_exists.return_value = False
-            
-            mock_page = MagicMock()
-            mock_page.exists.return_value = True
-            mock_page.text = "api text"
-            self.wiki_api.page.return_value = mock_page
-            
-            page_text = get_wikipedia_page(self.context, self.wiki_api, "http://en.wikipedia.org/wiki/Test_Page", "Q123")
-            
-            self.assertEqual(page_text, "api text")
-            self.wiki_api.page.assert_called_with("Test_Page")
-            mock_file.assert_called_with(WIKIPEDIA_CACHE_DIR / "Q123.txt", 'w', encoding='utf-8')
-            mock_file().write.assert_called_with("api text")
+    # Mock the glob call to simulate finding the temp files
+    expected_temp_files = [
+        PATH_TEMP / "0.jsonl",
+        PATH_TEMP / "1.jsonl",
+    ]
+    mock_glob.return_value = expected_temp_files
 
-    def test_get_wikipedia_page_invalid_url(self):
-        page_text = get_wikipedia_page(self.context, self.wiki_api, "invalid_url", "Q123")
-        self.assertIsNone(page_text)
+    # Mock input dataFrames
+    artist_df = pl.DataFrame(
+        {
+            "artist": ["Artist A", "Artist B"],
+            "wikipedia_url": ["url_a", "url_b"],
+            "genres": [["Q1"], ["Q2"]],  # Corrected length
+            "inception_year": [2000, 2001],  # Corrected length
+            "wikidata_entity": ["Q123", "Q456"],
+            "references_score": [10, 20],  # Corrected length
+        }
+    )
+    genres_df = pl.DataFrame({"wikidata_id": ["Q1"], "genre_label": ["Test Genre"]})
+    mock_read_ndjson.side_effect = [artist_df, genres_df]
 
-    def test_get_wikipedia_page_nonexistent_page(self):
-        with patch.object(Path, 'exists') as mock_exists:
-            mock_exists.return_value = False
-            mock_page = MagicMock()
-            mock_page.exists.return_value = False
-            self.wiki_api.page.return_value = mock_page
-            page_text = get_wikipedia_page(self.context, self.wiki_api, "http://en.wikipedia.org/wiki/Test_Page", "Q123")
-            self.assertIsNone(page_text)
+    # Mock different payloads for each artist
+    mock_payload_a = {
+        "artist": "Artist A", "page_text": "Article A text.", "genres": [],
+        "inception_year": 2000, "wikipedia_url": "url_a", "wikidata_entity": "Q123", "references_score": 10
+    }
+    mock_payload_b = {
+        "artist": "Artist B", "page_text": "Article B text.", "genres": [],
+        "inception_year": 2000, "wikipedia_url": "url_b", "wikidata_entity": "Q456", "references_score": 10
+    }
+    mock_fetch_payload.side_effect = [mock_payload_a, mock_payload_b]
 
-    @patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.pl.read_ndjson")
-    @patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.wikipediaapi.Wikipedia")
-    @patch("music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.get_wikipedia_page")
-    def test_fetch_raw_wikipedia_articles(self, mock_get_wikipedia_page, mock_wiki_api, mock_read_ndjson):
-        # Arrange
-        mock_artist_df = pl.DataFrame({
-            "wikidata_id": ["Q1", "Q2", "Q3"],
-            "artist": ["Artist 1", "Artist 2", "Artist 3"],
-            "genres": [["g1"], ["g2"], ["g3"]],
-            "inception": ["2001", "2002", "2003"],
-            "wikipedia_url": ["url1", "url2", None],
-            "relevance_score": [0.5, 0.6, 0.7],
-        })
-        mock_read_ndjson.return_value = mock_artist_df
-        
-        mock_get_wikipedia_page.side_effect = lambda ctx, api, url, wid: "text for " + wid if url else None
+    # --- Run the Asset ---
+    result_path = create_wikipedia_articles_dataset(context)
 
-        # Act
-        result_df = fetch_raw_wikipedia_articles(self.context)
+    # --- Assertions ---
 
-        # Assert
-        self.assertEqual(result_df.shape, (2, 7))
-        self.assertIn("page_text", result_df.columns)
-        self.assertEqual(result_df["page_text"][0], "text for Q1")
-        self.assertEqual(result_df["page_text"][1], "text for Q2")
-        mock_get_wikipedia_page.assert_any_call(self.context, mock_wiki_api.return_value, "url1", "Q1")
-        mock_get_wikipedia_page.assert_any_call(self.context, mock_wiki_api.return_value, "url2", "Q2")
-        # No call for Q3 because wikipedia_url is None
-        self.assertEqual(mock_get_wikipedia_page.call_count, 2)
+    # 1. Assert cache is cleaned at the start and end
+    assert mock_clean_cache.call_count == 2
+    mock_clean_cache.assert_has_calls([
+        call(PATH_TEMP),
+        call(PATH_TEMP)
+    ])
 
-if __name__ == "__main__":
-    unittest.main()
+    # 2. Assert save_to_jsonl was called for each artist with a temp file
+    assert mock_save_to_jsonl.call_count == 2
+    first_call = mock_save_to_jsonl.call_args_list[0]
+    second_call = mock_save_to_jsonl.call_args_list[1]
+
+    # Check first call (Artist A)
+    assert first_call.args[0][0]["metadata"]["artist_name"] == "Artist A"
+    assert first_call.args[1] == PATH_TEMP / "0.jsonl"
+    
+    # Check second call (Artist B)
+    assert second_call.args[0][0]["metadata"]["artist_name"] == "Artist B"
+    assert second_call.args[1] == PATH_TEMP / "1.jsonl"
+
+    # 3. Assert merge_jsonl_files was called correctly
+    mock_merge_jsonl.assert_called_once()
+    merge_call_args = mock_merge_jsonl.call_args[0]
+    
+    # The asset code uses sorted() on the glob result, so our mocked glob result should be passed directly
+    passed_files_list = merge_call_args[0]
+    assert passed_files_list == expected_temp_files
+
+    # 4. Assert that the final path is returned
+    assert isinstance(result_path, Path)
