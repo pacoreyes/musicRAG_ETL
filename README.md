@@ -1,6 +1,6 @@
 # music_rag_etl
 
-This is a [Dagster](https://dagster.io/) project scaffolded with [`dagster project scaffold`](https://docs.dagster.io/guides/build/projects/creating-a-new-project).
+This is an ETL pipeline made in [Dagster](https://dagster.io/), which orchestrates the de data ingestion from multiple sources: Wikidata API using SPARQL, Wikipedia API, and Last FM API. The goal of this ETL system is prepare the unstructured data in chunks and enrich it with structured data (metadata) from multiple sources. 
 
 ## Getting started
 
