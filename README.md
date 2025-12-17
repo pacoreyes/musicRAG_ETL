@@ -27,16 +27,51 @@ Each document in Chroma is a chunk or a larger Wikipedia Article. It consists of
 |----------|--------------|----------------------------------------------------|
 | article  | String       | The unstructured text that is vectorized to enable |
 |          |              | enable semantic similarity search.                 |
-| metadata | JSON object  | - title
-|          |              | - artist_name
-|          |              | - genres
-|          |              | - inception_year
-|          |              | - wikipedia_url
-|          |              | - wikidata_entity
-|          |              | - relevance_score
-|          |              | - chunk_index
-|          |              | - total_chunks
-| --------- | ------------ |----------------------------------------------------|
+| metadata | JSON object  | - title (string)
+|          |              | - artist_name (string)
+|          |              | - genres (list of strings)
+|          |              | - inception_year (integer)
+|          |              | - wikipedia_url (string)
+|          |              | - wikidata_entity (string)
+|          |              | - relevance_score (float)
+|          |              | - chunk_index (integer)
+|          |              | - total_chunks (integer)
+
+### 2. Graph Database
+
+Each node in Memgraph is an entity (musician, band, musical artist) with properties. And each edge is a relationship between entities.
+
+#### Nodes
+
+| Node   | Label  | Properties                                 |
+| Artist | Artist | - id: string (Wikidata QID, Primary Key)
+|        |        | - name: string
+|        |        | - aliases: list of strings
+|        |        | - country: string
+|        |        | - tags: list of strings
+|        |        | - similar_artists: list of strings
+| Album  | Album  | - id: string (Wikidata QID, Primary Key)
+|        |        | - title: string
+|        |        | - year: integer
+| Track  | Track  |
+
+
+
+id: string (Wikidata QID, Primary Key)
+title: string
+year: integer
+Track
+Label: :Track
+Properties:
+id: string (Wikidata QID, Primary Key)
+title: string
+Genre
+Label: :Genre
+Properties:
+id: string (Wikidata QID, Primary Key)
+name: string
+aliases: list of strings
+
 
 
 
