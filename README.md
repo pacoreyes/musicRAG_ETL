@@ -41,38 +41,49 @@ Each document in Chroma is a chunk or a larger Wikipedia Article. It consists of
 
 Each node in Memgraph is an entity (musician, band, musical artist) with properties. And each edge is a relationship between entities.
 
-#### Nodes
+#### Nodes (entities)
 
 | Node   | Label  | Properties                                 |
-| Artist | Artist | - id: string (Wikidata QID, Primary Key)
+|--------|--------|--------------------------------------------|
+| Artist | Artist | - QID: string (Wikidata QID, Primary Key)
 |        |        | - name: string
 |        |        | - aliases: list of strings
 |        |        | - country: string
 |        |        | - tags: list of strings
 |        |        | - similar_artists: list of strings
-| Album  | Album  | - id: string (Wikidata QID, Primary Key)
+| Album  | Album  | - QID: string (Wikidata QID, Primary Key)
 |        |        | - title: string
 |        |        | - year: integer
-| Track  | Track  |
+| Track  | Track  | - QID: string (Wikidata QID, Primary Key)
+|        |        | - title: string
+| Genre  | Genre  | - QID: string (Wikidata QID, Primary Key)
+|        |        | - name: string
+|        |        | - aliases: list of strings
 
+**Number of Articles**
+- 14,003 articles initially collected.
+- 13,810 articles (after deduplication by wikipedia_url, wikidata_id, artist name)
+- 13,809 articles (finally processed, skipping 1 with empty wikipedia_url)
 
+#### Edges (relationships)
 
-id: string (Wikidata QID, Primary Key)
-title: string
-year: integer
-Track
-Label: :Track
-Properties:
-id: string (Wikidata QID, Primary Key)
-title: string
-Genre
-Label: :Genre
-Properties:
-id: string (Wikidata QID, Primary Key)
-name: string
-aliases: list of strings
+| Edges                                 | Description                                    |
+|---------------------------------------|------------------------------------------------|
+| (Artist) - [:HAS_GENRE] -> (Genre)    | Connects an artist to their musical genres.    |
+| (Album) - [:PERFORMED_BY] -> (Artist) | Connects an album to its performing artist(s). |
+| (Album) - [:HAS_GENRE] -> (Genre)     | Connects an album to its genres.               |
+| (Album) - [CONTAINS_TRACK] -> (Track  | Connects an album to its track.                |
+| (Artist) - [SIMILAR_TO] -> (Artist)   | Connects an artist to other similar artists.   |
 
+**Number of Nodes**
+- Artist: 12,545
+- Genre: 995
+- Album: 120,436
+- Track: 37,000
+- *Total*: 170,977
 
+**Number of Edges**
+(upcoming)
 
 
 
