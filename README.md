@@ -1,6 +1,36 @@
 # music_rag_etl
 
-This is an ETL pipeline made in [Dagster](https://dagster.io/), which orchestrates the de data ingestion from multiple sources: Wikidata API using SPARQL, Wikipedia API, and Last FM API. The goal of this ETL system is prepare the unstructured data in chunks and enrich it with structured data (metadata) from multiple sources. 
+This is an ETL pipeline made in [Dagster](https://dagster.io/), which orchestrates the data ingestion from multiple sources: 
+
+- Wikidata API using SPARQL
+- Wikipedia API, and 
+- Last FM API
+
+The goal of this ETL system is to prepare the unstructured data of Wikipedia articles of musicians, bands, and other musical artists in a dataset split in chunks enriched with structured data (metadata) ingested from multiple sources. 
+We make an extensive use of [Polars](https://pola.rs/) due to its velocity to manipulate data in the transformation stage.
+We also use extensively [dlt (Data Load Tool)](https://dlthub.com/) to move data from one point to another in a scenery where data schema is permanently evolving, making automatic the always challenging schema evolution. And for handling data validation, we use [Pydantic](https://pydantic.dev/).
+In this project we prepare data for two different data search approaches:
+
+- Semantic: using a vector database, [Chroma](https://www.trychroma.com/).
+- Deterministic: using a graph dtabase, [Memgraph](https://memgraph.com/).
+
+The semantic search with Chroma is mostly probabilistic, although we have certain control of filtering and orchestration leveraging the metadata. On the other hand, the relational search with Memgraph is deterministic, because it relies on a rigid data structure among entities (nodes) and relations (edges).
+This double sword solution relies on a well thought data engineering work.
+
+## Data
+
+### 1. Vector Database
+
+Each document in Chroma is a chunk or a larger Wikipedia Article. It consists of the text content itself (which is vectorized) and a set of metadata tags.
+
+| Field   | Type   | Description                                        |
+|---------|--------|----------------------------------------------------|
+| article | String | The unstructured text that is vectorized to enable |
+|         |        | enable semantic similarity search                  
+
+
+Also, the selection of the 
+
 
 ## Getting started
 
