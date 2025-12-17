@@ -20,7 +20,13 @@ dependencies = [
     "ruff", # Linter
     "wikipedia-api",
     "langchain-text-splitters",
-    "chromadb"
+    "chromadb",
+    "torch",
+    "sentence_transformers",
+    "transformers",
+    "torch",
+    "einops"
+
 ]
 
 [project.optional-dependencies]

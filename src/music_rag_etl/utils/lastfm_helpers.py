@@ -19,6 +19,7 @@ def fetch_lastfm_data_with_cache(
     context: AssetExecutionContext,
     artist_name: str,
     api_key: str,
+    api_url: str,
 ) -> Optional[Dict[str, Any]]:
     """
     Fetches artist data from the Last.fm API, using a local file cache to
@@ -28,11 +29,12 @@ def fetch_lastfm_data_with_cache(
         context: The Dagster asset execution context.
         artist_name: The name of the artist to query.
         api_key: The Last.fm API key.
+        api_url: The Last.fm API base URL.
 
     Returns:
         A dictionary containing the API response, or None if an error occurs.
     """
-    if not artist_name or not api_key:
+    if not all([artist_name, api_key, api_url]):
         return None
 
     cache_key = get_cache_key(artist_name.lower())
@@ -60,7 +62,7 @@ def fetch_lastfm_data_with_cache(
     try:
         response = make_request_with_retries(
             context=context,
-            url="http://ws.audioscrobbler.com/2.0/",
+            url=api_url,
             method="GET",
             params=params,
             timeout=LASTFM_REQUEST_TIMEOUT,

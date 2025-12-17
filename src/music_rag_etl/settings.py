@@ -83,7 +83,7 @@ LASTFM_RETRY_DELAY = 1
 
 # --- ChromaDB ---
 DEFAULT_MODEL_NAME = "nomic-ai/nomic-embed-text-v1.5"
-DEFAULT_COLLECTION_NAME = "musicrag_embeddings"
+DEFAULT_COLLECTION_NAME = "musicrag_collection"
 
 # ==============================================================================
 #  ETL & PROCESSING PARAMETERS
@@ -109,6 +109,3 @@ DECADES_TO_EXTRACT = {
     "2020s": (2020, 2029),
 }
 
-# Last FM API key and URL
-LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
-LASTFM_API_URL = "http://ws.audioscrobbler.com/2.0/"

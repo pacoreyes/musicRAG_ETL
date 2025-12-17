@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
+from transformers import AutoTokenizer
 import polars as pl
 import wikipediaapi
 from dagster import asset, AssetExecutionContext
@@ -13,8 +14,7 @@ from music_rag_etl.settings import (
     WIKIPEDIA_ARTICLES_FILE,
     ARTIST_INDEX,
     GENRES_FILE,
-    PATH_TEMP,
-    WIKIDATA_ENTITY_PREFIX_URL,
+    PATH_TEMP
 )
 from music_rag_etl.utils.io_helpers import save_to_jsonl, merge_jsonl_files
 from music_rag_etl.utils.transformation_helpers import clean_text_string
@@ -79,11 +79,13 @@ def create_wikipedia_articles_dataset(
         f"Starting concurrent fetching and processing of {total_rows} Wikipedia articles..."
     )
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200,
-        length_function=len,
-        separators=["\n\n", "\n", ". ", " ", ""],
+    tokenizer = AutoTokenizer.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+
+    text_splitter = RecursiveCharacterTextSplitter.from_huggingface_tokenizer(
+        tokenizer,
+        chunk_size=2048,
+        chunk_overlap=256,
+        separators=["\n\n", "\n", ". ", " ", ""]
     )
 
     def process_artist_to_temp_file(item: Tuple[int, Dict[str, Any], Path]):
@@ -106,23 +108,26 @@ def create_wikipedia_articles_dataset(
         total_chunks = len(chunks)
 
         genres = article_payload.get("genres") or []
-        genre_header = genres[0] if genres else "N/A"
+        # genre_header = genres[0] if genres else "N/A"
 
         artist_chunks = []
         for i, chunk_text in enumerate(chunks):
+            title = article_payload["artist"]
+            # Create enriched text to prepend to the chunk
             enriched_text = (
-                f"Title: {article_payload['artist']}\n"
-                f"Genre: {genre_header}\n"
-                f"Content: {chunk_text}"
+                f"search_document: {article_payload["artist"]} | {chunk_text}"
             )
+            # Remove " . " pattern
+            enriched_text = enriched_text.replace(" | . ", " | ")
             chunk_record = {
                 "metadata": {
-                    "artist_name": article_payload['artist'],
+                    "title": title,
+                    "artist_name": article_payload["artist"],
                     "genres": genres,
                     "inception_year": article_payload["inception_year"],
                     "wikipedia_url": article_payload["wikipedia_url"],
-                    "wikidata_entity_url": article_payload["wikidata_entity"],
-                    "references_score": article_payload["references_score"],
+                    "wikidata_entity": article_payload["wikidata_id"],
+                    "relevance_score": article_payload["references_score"],
                     "chunk_index": i + 1,
                     "total_chunks": total_chunks,
                 },
@@ -149,8 +154,3 @@ def create_wikipedia_articles_dataset(
     context.log.info("Cleaned up temporary cache files.")
 
     return WIKIPEDIA_ARTICLES_FILE
-
-"""
-one row in the source has wikipedia_url="", and it is skipped.
-"""
-

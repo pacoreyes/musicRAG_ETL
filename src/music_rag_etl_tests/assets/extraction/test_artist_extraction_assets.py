@@ -23,11 +23,19 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
             "wikidata_id": "Q1",
             "artist": "Artist One",
             "genres": ["genre-a", "genre-b"],
+            "wikipedia_url": "https://example.com/artist-one",
         },
         {
             "wikidata_id": "Q2",
             "artist": "Artist Two",
             "genres": ["genre-c"],
+            "wikipedia_url": "https://example.com/artist-two",
+        },
+        {
+            "wikidata_id": "Q3",
+            "artist": "Artist Three",
+            "genres": ["genre-d"],
+            "wikipedia_url": "",
         },
     ]
     with open(mock_artist_index_path, "w") as f:
@@ -104,6 +112,7 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
         output_dicts = output_df.to_dicts()
         artist_one_out = next(d for d in output_dicts if d["id"] == "Q1")
         artist_two_out = next(d for d in output_dicts if d["id"] == "Q2")
+        assert all(d["id"] != "Q3" for d in output_dicts)
 
         # Verify Artist One
         assert artist_one_out["name"] == "Artist One"

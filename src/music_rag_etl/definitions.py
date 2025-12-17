@@ -26,25 +26,13 @@ asset_modules = [
 # Load all assets from the specified modules
 all_assets = load_assets_from_modules(asset_modules)
 
-# Original commented out section (preserved as requested)
-"""all_assets_commented = load_assets_from_modules([root_assets])
-
-defs_commented = Definitions(
-    assets=all_assets_commented,
-    # Resources allow you to pass configuration (like API keys) to your assets
-    resources={
-        "api_config": {
-            "lastfm_api_key": EnvVar("LAST_FM_API_KEY"),
-        }
-    },
-)"""
-
 defs = Definitions(
     assets=all_assets,
     # Resources allow you to pass configuration (like API keys) to your assets
     resources={
         "api_config": {
-            "lastfm_api_key": EnvVar("LAST_FM_API_KEY"),
+            "lastfm_api_key": EnvVar("LASTFM_API_KEY"),
+            "lastfm_api_url": EnvVar("LASTFM_API_URL"),
         }
     },
 )

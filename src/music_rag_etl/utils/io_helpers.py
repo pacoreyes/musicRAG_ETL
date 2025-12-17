@@ -39,7 +39,8 @@ def save_to_jsonl(data: List[Dict], file_path: Path):
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as f:
         for record in data:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            json_string = json.dumps(record, ensure_ascii=False)
+            f.write(json_string + "\n")
 
 
 def merge_jsonl_files(input_paths: List[Path], output_path: Path):

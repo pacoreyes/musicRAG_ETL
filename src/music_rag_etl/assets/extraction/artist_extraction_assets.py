@@ -1,5 +1,5 @@
 import polars as pl
-from dagster import asset, AssetExecutionContext, Config
+from dagster import asset, AssetExecutionContext
 from typing import List, Dict, Any, Optional
 
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE
@@ -42,6 +42,7 @@ def _enrich_artist_batch(
     artist_batch: List[Dict[str, Any]],
     context: AssetExecutionContext,
     api_key: str,
+    api_url: str,
 ) -> List[Dict[str, Any]]:
     """Worker function to enrich a batch of artists with Wikidata and Last.fm data."""
     enriched_batch = []
@@ -56,7 +57,9 @@ def _enrich_artist_batch(
         artist_name = artist["artist"]
 
         # 3. Get Last.fm data using its caching helper
-        lastfm_data = fetch_lastfm_data_with_cache(context, artist_name, api_key)
+        lastfm_data = fetch_lastfm_data_with_cache(
+            context, artist_name, api_key, api_url
+        )
 
         # Extract Last.fm info
         tags = []
@@ -94,6 +97,7 @@ def _enrich_artist_batch(
     name="artists_extraction_from_artist_index",
     deps=["artist_index_with_relevance"],
     description="Creates artist dataset with enriched details from Wikidata and Last.fm.",
+    required_resource_keys={"api_config"},
 )
 def artists_extraction_from_artist_index(context: AssetExecutionContext):
     """
@@ -102,11 +106,14 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
     the result to a new JSONL file.
     """
     context.log.info("Starting artist enrichment process.")
-    api_key = context.resources.api_config["lastfm_api_key"]
+    api_key = context.resources.api_config["lastfm_api_key"].get_value()
+    api_url = context.resources.api_config["lastfm_api_url"].get_value()
 
     # 1. Load upstream data
     artist_df = pl.read_ndjson(ARTIST_INDEX)
-    artists_to_process = artist_df.to_dicts()
+    artists_to_process = [
+        artist for artist in artist_df.to_dicts() if artist.get("wikipedia_url")
+    ]
     context.log.info(f"Loaded {len(artists_to_process)} artists to process.")
 
     # 2. Chunk data for concurrent processing
@@ -118,7 +125,9 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
     # 3. Define a partial function for the worker to pass extra args
     from functools import partial
 
-    worker_fn = partial(_enrich_artist_batch, context=context, api_key=api_key)
+    worker_fn = partial(
+        _enrich_artist_batch, context=context, api_key=api_key, api_url=api_url
+    )
 
     # 4. Process batches concurrently
     nested_results = process_items_concurrently(
