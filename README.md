@@ -1,6 +1,6 @@
 # musicRAG (ETL)
 
-*Last update: December 17, 2025)
+*Last update: December 17, 2025)*
 
 This is an ETL pipeline made in [Dagster](https://dagster.io/), which orchestrates the data ingestion from multiple sources: 
 
