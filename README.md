@@ -1,4 +1,4 @@
-# music_rag_etl
+# musicRAG (ETL)
 
 This is an ETL pipeline made in [Dagster](https://dagster.io/), which orchestrates the data ingestion from multiple sources: 
 
@@ -23,10 +23,23 @@ This double sword solution relies on a well thought data engineering work.
 
 Each document in Chroma is a chunk or a larger Wikipedia Article. It consists of the text content itself (which is vectorized) and a set of metadata tags.
 
-| Field   | Type   | Description                                        |
-|---------|--------|----------------------------------------------------|
-| article | String | The unstructured text that is vectorized to enable |
-|         |        | enable semantic similarity search                  
+| Field     | Type         | Description                                        |
+|-----------|--------------|----------------------------------------------------|
+| article   | String       | The unstructured text that is vectorized to enable |
+|           |              | enable semantic similarity search.                 |
+| --------- | ------------ |----------------------------------------------------|
+| metadata  | JSON object  | - title
+|           |              | - artist_name
+|           |              | - genres
+|           |              | - inception_year
+|           |              | - wikipedia_url
+|           |              | - wikidata_entity
+|           |              | - relevance_score
+|           |              | - chunk_index
+|           |              | - total_chunks
+| --------- | ------------ |----------------------------------------------------|
+
+
 
 
 Also, the selection of the 
