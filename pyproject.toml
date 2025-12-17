@@ -1,7 +1,7 @@
 [project]
 name = "music_rag_etl"
 version = "0.1.0"
-description = "Add your description here"
+description = "An ETL pipeline for musicRAG"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
@@ -25,13 +25,14 @@ dependencies = [
     "sentence_transformers",
     "transformers",
     "torch",
-    "einops"
-
+    "einops",
+    "nomic"
 ]
 
 [project.optional-dependencies]
 dev = [
-
+    "dagster-webserver",
+    "pytest",
 ]
 
 [build-system]
@@ -42,11 +43,9 @@ build-backend = "setuptools.build_meta"
 module_name = "music_rag_etl.definitions"
 code_location_name = "music_rag_etl"
 
-# [tool.setuptools.packages.find]
-# exclude=["music_rag_etl_tests"]
-
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude=["music_rag_etl_tests"]
 
 [tool.ruff]
 line-length = 88

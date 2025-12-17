@@ -33,6 +33,7 @@ defs = Definitions(
         "api_config": {
             "lastfm_api_key": EnvVar("LASTFM_API_KEY"),
             "lastfm_api_url": EnvVar("LASTFM_API_URL"),
+            "nomic_api_key": EnvVar("NOMIC_API_KEY"),
         }
     },
 )

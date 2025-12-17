@@ -55,24 +55,12 @@ def create_wikipedia_articles_dataset(
 
     rows_to_process = [row for row in artist_df.to_dicts() if row.get("wikipedia_url")]
 
-    # De-duplicate rows based on the wikipedia_url to prevent processing the same article twice
-    seen_urls = set()
-    unique_rows_to_process = []
-    for row in rows_to_process:
-        if row["wikipedia_url"] not in seen_urls:
-            unique_rows_to_process.append(row)
-            seen_urls.add(row["wikipedia_url"])
-    
-    total_rows = len(unique_rows_to_process)
-    context.log.info(
-        f"Found {len(rows_to_process)} total rows, "
-        f"de-duplicated to {total_rows} unique wikipedia articles."
-    )
-    
+    total_rows = len(rows_to_process)
+
     # Prepare items with their designated temporary file path
     items_to_process = [
         (i, row, PATH_TEMP / f"{i}.jsonl")
-        for i, row in enumerate(unique_rows_to_process)
+        for i, row in enumerate(rows_to_process)
     ]
 
     context.log.info(
