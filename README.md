@@ -91,10 +91,13 @@ Each node in Memgraph is an entity (musician, band, musical artist) with propert
 
 Dagster is a cloud-native data orchestration platform designed to build, deploy, and monitor data pipelines. The following images depict how I am using Dagster to build my ETL pipeline:
 
-Figure 1.
-![Dagster Assets defining the ETL Pipeline](https://github.com/pacoreyes/musicRAG_ETL/blob/master/docs/dagster_graph.png?raw=true "Dagster Assets defining the ETL Pipeline")
+**Figure 1.**
 
-Figure 2.
+![Dagster Assets graph in the ETL Pipeline](https://github.com/pacoreyes/musicRAG_ETL/blob/master/docs/dagster_graph.png?raw=true "Dagster Assets graph in the ETL Pipeline")
+
+**Figure 2.**
+
+![Dagster Assets defining the ETL Pipeline](https://github.com/pacoreyes/musicRAG_ETL/blob/master/docs/dagster_pipeline.png?raw=true "Dagster Assets defining the ETL Pipeline")
 
 ## Tech Stack
 
