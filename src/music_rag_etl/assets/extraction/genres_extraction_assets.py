@@ -67,6 +67,7 @@ def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
         items=id_chunks,
         process_func=fetch_and_parse_genre_batch,
         max_workers=5,  # Max 5 simultaneous connections as requested
+        logger=context.log,
     )
 
     # Flatten the list of lists into a single list

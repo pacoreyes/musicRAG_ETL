@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE
 from music_rag_etl.utils.io_helpers import chunk_list, save_to_jsonl
 from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
-from music_rag_etl.utils.lastfm_helpers import fetch_lastfm_data_with_cache
+from music_rag_etl.utils.lastfm_helpers import get_artist_info_with_fallback
 from music_rag_etl.utils.wikidata_helpers import (
     fetch_wikidata_entities_batch_with_cache,
     resolve_qids_to_labels,
@@ -36,6 +36,18 @@ def _parse_artist_aliases(entity_data: Dict[str, Any]) -> List[str]:
     return [alias["value"] for alias in aliases]
 
 
+def _parse_artist_mbid(entity_data: Dict[str, Any]) -> Optional[str]:
+    """Parses MusicBrainz ID (P434) from a Wikidata entity."""
+    claims = entity_data.get("claims", {})
+    # Property P434: MusicBrainz ID for artists
+    if "P434" in claims:
+        main_snak = claims["P434"][0].get("mainsnak", {})
+        if main_snak.get("snaktype") == "value":
+            mbid = main_snak.get("datavalue", {}).get("value")
+            return mbid
+    return None
+
+
 def _enrich_artist_batch(
     artist_batch: List[Dict[str, Any]],
     context: AssetExecutionContext,
@@ -46,7 +58,7 @@ def _enrich_artist_batch(
     enriched_batch = []
     qids_in_batch = [artist["wikidata_id"] for artist in artist_batch]
 
-    # 1. Fetch all Wikidata entities for the batch using the caching helper
+    # 1. Fetch all Wikidata entities for the batch
     wikidata_entities = fetch_wikidata_entities_batch_with_cache(context, qids_in_batch)
 
     # 2. Collect all unique country QIDs from the current artist batch
@@ -57,18 +69,26 @@ def _enrich_artist_batch(
         if country_qid:
             country_qids.add(country_qid)
 
-    # 3. Resolve these country QIDs to labels in a single, cached batch call
+    # 3. Resolve these country QIDs to labels in a single batch call
     country_labels_map = resolve_qids_to_labels(context, list(country_qids))
 
-    # 4. Process each artist in the batch, now with all data available
+    # 4. Process each artist in the batch
     for artist in artist_batch:
         qid = artist["wikidata_id"]
         artist_name = artist["artist"]
 
-        # Get Last.fm data
-        lastfm_data = fetch_lastfm_data_with_cache(
-            context, artist_name, api_key, api_url
+        # Get Wikidata info
+        wikidata_info = wikidata_entities.get(qid, {})
+        country_qid = _parse_artist_country(wikidata_info)
+        country_label = country_labels_map.get(country_qid)
+        aliases = _parse_artist_aliases(wikidata_info)
+        artist_mbid = _parse_artist_mbid(wikidata_info)
+
+        # Get Last.fm data using fallback logic
+        lastfm_data = get_artist_info_with_fallback(
+            context, artist_name, aliases, artist_mbid, api_key, api_url
         )
+
         tags = []
         similar_artists = []
         if lastfm_data and lastfm_data.get("artist"):
@@ -83,12 +103,6 @@ def _enrich_artist_batch(
                 for sim in artist_data.get("similar", {}).get("artist", [])
                 if "name" in sim
             ][:5]
-
-        # Get Wikidata info and use the pre-fetched country label
-        wikidata_info = wikidata_entities.get(qid, {})
-        country_qid = _parse_artist_country(wikidata_info)
-        country_label = country_labels_map.get(country_qid)  # Map QID to label
-        aliases = _parse_artist_aliases(wikidata_info)
 
         final_record = {
             "id": qid,
@@ -122,11 +136,10 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
 
     # 1. Load upstream data
     artist_df = pl.read_ndjson(ARTIST_INDEX)
-
-    # artist_df = artist_df.head(20)  # For experimenting
-
+    artist_df = artist_df.head(50)
+    
     artists_to_process = [
-        artist for artist in artist_df.to_dicts() if artist.get("wikipedia_url")
+    artist for artist in artist_df.to_dicts() if artist.get("wikipedia_url")
     ]
     context.log.info(f"Loaded {len(artists_to_process)} artists to process.")
 
@@ -145,7 +158,7 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
 
     # 4. Process batches concurrently
     nested_results = process_items_concurrently(
-        items=artist_batches, process_func=worker_fn
+        items=artist_batches, process_func=worker_fn, logger=context.log
     )
 
     # 5. Flatten, deduplicate, and save results
