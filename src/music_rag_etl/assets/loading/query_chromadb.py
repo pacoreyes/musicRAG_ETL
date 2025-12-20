@@ -1,4 +1,5 @@
 """A script to query a ChromaDB collection with a given text query."""
+
 import argparse
 import os
 from pathlib import Path
@@ -164,8 +165,10 @@ def perform_query(
         print(f"  - URL:      {metadata.get('wikipedia_url', 'N/A')}")
         print(f"  - Distance: {results['distances'][0][i]:.4f}")
         print(f"  - Score:    {metadata.get('relevance_score', 'N/A')}")
-        print(f"  - Chunks:   {metadata.get('chunk_index', 'N/A')} of "
-              f"{metadata.get('total_chunks', 'N/A')}")
+        print(
+            f"  - Chunks:   {metadata.get('chunk_index', 'N/A')} of "
+            f"{metadata.get('total_chunks', 'N/A')}"
+        )
         print(f"  - Document: {results['documents'][0][i][:600]}...")
         print("-" * 30)
 
@@ -184,34 +187,35 @@ def _setup_arg_parser() -> argparse.ArgumentParser:
         type=str,
         nargs="?",
         default=None,
-        help="Optional initial query. Enters interactive mode after."
+        help="Optional initial query. Enters interactive mode after.",
     )
     parser.add_argument(
-        "-n", "--n-results", type=int, default=5,
-        help="Number of results to retrieve."
+        "-n", "--n-results", type=int, default=5, help="Number of results to retrieve."
     )
     parser.add_argument(
-        "--db-path", type=Path, default=Path("data_volume/vector_db"),
-        help="Path to the ChromaDB directory."
+        "--db-path",
+        type=Path,
+        default=Path("data_volume/vector_db"),
+        help="Path to the ChromaDB directory.",
     )
     parser.add_argument(
-        "--collection", type=str, default=DEFAULT_COLLECTION_NAME,
-        help=f"Collection name to query (default: {DEFAULT_COLLECTION_NAME})."
+        "--collection",
+        type=str,
+        default=DEFAULT_COLLECTION_NAME,
+        help=f"Collection name to query (default: {DEFAULT_COLLECTION_NAME}).",
     )
     parser.add_argument(
-        "--view-embeddings", action="store_true",
-        help="If set, view a sample of embeddings and exit."
+        "--view-embeddings",
+        action="store_true",
+        help="If set, view a sample of embeddings and exit.",
     )
     parser.add_argument(
-        "--filter-genre", type=str,
-        help="Filter by genre (case-insensitive, partial match)."
+        "--filter-genre",
+        type=str,
+        help="Filter by genre (case-insensitive, partial match).",
     )
-    parser.add_argument(
-        "--filter-min-year", type=int, help="Filter by minimum year."
-    )
-    parser.add_argument(
-        "--filter-max-year", type=int, help="Filter by maximum year."
-    )
+    parser.add_argument("--filter-min-year", type=int, help="Filter by minimum year.")
+    parser.add_argument("--filter-max-year", type=int, help="Filter by maximum year.")
     return parser
 
 
@@ -225,8 +229,9 @@ def main() -> None:
         return
 
     if (
-        args.filter_min_year and args.filter_max_year and
-        args.filter_min_year > args.filter_max_year
+        args.filter_min_year
+        and args.filter_max_year
+        and args.filter_min_year > args.filter_max_year
     ):
         print("Error: --filter-min-year cannot exceed --filter-max-year.")
         return

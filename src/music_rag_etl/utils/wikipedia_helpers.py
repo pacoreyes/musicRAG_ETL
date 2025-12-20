@@ -97,9 +97,7 @@ def fetch_artist_article_payload(
         year_str = str(inception_raw)[:4]
         inception_year = int(year_str) if year_str.isdigit() else "N/A"
 
-    wikidata_entity = (
-        f"{WIKIDATA_ENTITY_URL}{wikidata_id}" if wikidata_id else None
-    )
+    wikidata_entity = f"{WIKIDATA_ENTITY_URL}{wikidata_id}" if wikidata_id else None
 
     return {
         "artist": artist_row.get("artist"),

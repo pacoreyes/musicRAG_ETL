@@ -5,12 +5,14 @@ import requests
 
 from music_rag_etl.utils.request_utils import make_request_with_retries
 
+
 @pytest.fixture
 def mock_context():
     """Fixture for a mock Dagster context."""
     context = MagicMock()
     context.log = MagicMock()
     return context
+
 
 @patch("requests.request")
 def test_make_request_with_retries_post_success(mock_request, mock_context):
@@ -26,11 +28,7 @@ def test_make_request_with_retries_post_success(mock_request, mock_context):
 
     # 2. Action
     response = make_request_with_retries(
-        context=mock_context,
-        url=url,
-        method="POST",
-        params=params,
-        headers=headers
+        context=mock_context, url=url, method="POST", params=params, headers=headers
     )
 
     # 3. Assertions
@@ -55,11 +53,7 @@ def test_make_request_with_retries_get_success(mock_request, mock_context):
 
     # 2. Action
     response = make_request_with_retries(
-        context=mock_context,
-        url=url,
-        method="GET",
-        params=params,
-        headers=headers
+        context=mock_context, url=url, method="GET", params=params, headers=headers
     )
 
     # 3. Assertions
@@ -69,9 +63,12 @@ def test_make_request_with_retries_get_success(mock_request, mock_context):
     )
     mock_context.log.warning.assert_not_called()
 
+
 @patch("time.sleep")
 @patch("requests.request")
-def test_make_request_with_retries_with_failures(mock_request, mock_sleep, mock_context):
+def test_make_request_with_retries_with_failures(
+    mock_request, mock_sleep, mock_context
+):
     """Tests that the function retries on failure and succeeds eventually."""
     # 1. Setup
     # Fail twice, then succeed
@@ -82,7 +79,9 @@ def test_make_request_with_retries_with_failures(mock_request, mock_sleep, mock_
     ]
 
     # 2. Action
-    make_request_with_retries(mock_context, "http://test.com", method="GET", max_retries=3)
+    make_request_with_retries(
+        mock_context, "http://test.com", method="GET", max_retries=3
+    )
 
     # 3. Assertions
     assert mock_request.call_count == 3
@@ -101,7 +100,9 @@ def test_make_request_with_retries_exhausted(mock_request, mock_sleep, mock_cont
     max_retries = 3
 
     # 2. Action & Assertions
-    with pytest.raises(requests.exceptions.RequestException, match="Failed to fetch data"):
+    with pytest.raises(
+        requests.exceptions.RequestException, match="Failed to fetch data"
+    ):
         make_request_with_retries(
             mock_context, "http://test.com", method="POST", max_retries=max_retries
         )
@@ -115,4 +116,3 @@ def test_make_request_with_invalid_method(mock_context):
     """Tests that an invalid HTTP method raises a ValueError."""
     with pytest.raises(ValueError, match="Method must be 'GET' or 'POST'"):
         make_request_with_retries(mock_context, "http://test.com", method="PUT")
-

@@ -8,20 +8,18 @@ from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
 from music_rag_etl.utils.lastfm_helpers import fetch_lastfm_data_with_cache
 from music_rag_etl.utils.wikidata_helpers import (
     fetch_wikidata_entities_batch_with_cache,
-    parse_wikidata_entity_label,
+    resolve_qids_to_labels,
 )
 
 
 def _parse_artist_country(entity_data: Dict[str, Any]) -> Optional[str]:
-    """Parses country of origin (P495) or citizenship (P27) from a Wikidata entity."""
+    """Parses country of origin (P495) or citizenship (P27) QID from a Wikidata entity."""
     claims = entity_data.get("claims", {})
     # Property P495: country of origin
     if "P495" in claims:
         main_snak = claims["P495"][0].get("mainsnak", {})
         if main_snak.get("snaktype") == "value":
             country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
-            # This would ideally be resolved to a label, but for now, we return the ID
-            # In a real scenario, a secondary lookup or pre-loaded map would be used.
             return country_id
     # Property P27: country of citizenship
     if "P27" in claims:
@@ -51,40 +49,53 @@ def _enrich_artist_batch(
     # 1. Fetch all Wikidata entities for the batch using the caching helper
     wikidata_entities = fetch_wikidata_entities_batch_with_cache(context, qids_in_batch)
 
-    # 2. Process each artist in the batch
+    # 2. Collect all unique country QIDs from the current artist batch
+    country_qids = set()
+    for qid in qids_in_batch:
+        artist_info = wikidata_entities.get(qid, {})
+        country_qid = _parse_artist_country(artist_info)
+        if country_qid:
+            country_qids.add(country_qid)
+
+    # 3. Resolve these country QIDs to labels in a single, cached batch call
+    country_labels_map = resolve_qids_to_labels(context, list(country_qids))
+
+    # 4. Process each artist in the batch, now with all data available
     for artist in artist_batch:
         qid = artist["wikidata_id"]
         artist_name = artist["artist"]
 
-        # 3. Get Last.fm data using its caching helper
+        # Get Last.fm data
         lastfm_data = fetch_lastfm_data_with_cache(
             context, artist_name, api_key, api_url
         )
-
-        # Extract Last.fm info
         tags = []
         similar_artists = []
         if lastfm_data and lastfm_data.get("artist"):
+            artist_data = lastfm_data["artist"]
             tags = [
                 tag["name"]
-                for tag in lastfm_data["artist"].get("tags", {}).get("tag", [])
-            ]
+                for tag in artist_data.get("tags", {}).get("tag", [])
+                if "name" in tag
+            ][:5]
             similar_artists = [
                 sim["name"]
-                for sim in lastfm_data["artist"].get("similar", {}).get("artist", [])
-            ]
+                for sim in artist_data.get("similar", {}).get("artist", [])
+                if "name" in sim
+            ][:5]
 
-        # Extract Wikidata info
+        # Get Wikidata info and use the pre-fetched country label
         wikidata_info = wikidata_entities.get(qid, {})
-        country = _parse_artist_country(wikidata_info)
+        country_qid = _parse_artist_country(wikidata_info)
+        country_label = country_labels_map.get(country_qid)  # Map QID to label
         aliases = _parse_artist_aliases(wikidata_info)
 
         final_record = {
             "id": qid,
             "name": artist_name,
             "aliases": aliases,
-            "country": country,
-            "genres": artist["genres"],  # Direct copy as instructed
+            "country": country_label,
+            "genres": artist["genres"],
             "tags": tags,
             "similar_artists": similar_artists,
         }
@@ -111,6 +122,9 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
 
     # 1. Load upstream data
     artist_df = pl.read_ndjson(ARTIST_INDEX)
+
+    artist_df = artist_df.head(20)
+
     artists_to_process = [
         artist for artist in artist_df.to_dicts() if artist.get("wikipedia_url")
     ]

@@ -9,10 +9,8 @@ def clean_text(df: pl.DataFrame, col_name: str) -> pl.DataFrame:
         # 1. Manual replacements (escaped quotes & newlines)
         .str.replace_all(r'\\"', '"')  # Fix escaped quotes
         .str.replace_all(r"[\n\r]+", " ")  # Replace newlines with space
-
         # 2. Unicode Normalization (Optional: handles partial ftfy work)
-        #.str.normalize("NFKC")
-
+        # .str.normalize("NFKC")
         # 3. Cleantext equivalent (extra_spaces=True)
         .str.replace_all(r"\s+", " ")  # Squash multiple spaces
         .str.strip_chars()  # Remove leading/trailing space
@@ -37,9 +35,7 @@ def clean_text_string(text: str) -> str:
     return text
 
 
-def extract_unique_ids_from_column(
-    df: pl.DataFrame, column_name: str
-) -> List[str]:
+def extract_unique_ids_from_column(df: pl.DataFrame, column_name: str) -> List[str]:
     """
     Extracts unique non-null values from a DataFrame column
     containing lists of IDs.
@@ -52,12 +48,12 @@ def extract_unique_ids_from_column(
         A list of unique IDs.
     """
     list_of_lists = df[column_name].unique().to_list()
-    
+
     unique_ids = set()
     for sublist in list_of_lists:
         if sublist:
             unique_ids.update(item for item in sublist if item)
-            
+
     return sorted(list(unique_ids))  # Return sorted list for consistent output
 
 
@@ -80,4 +76,8 @@ def map_genre_labels_to_ids(
     """
     if not genre_labels:
         return []
-    return [label_to_id_lookup[label] for label in genre_labels if label in label_to_id_lookup]
+    return [
+        label_to_id_lookup[label]
+        for label in genre_labels
+        if label in label_to_id_lookup
+    ]

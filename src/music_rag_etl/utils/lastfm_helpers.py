@@ -1,6 +1,5 @@
 import json
 import hashlib
-from pathlib import Path
 from typing import Dict, Any, Optional
 
 import requests
@@ -23,7 +22,7 @@ def fetch_lastfm_data_with_cache(
 ) -> Optional[Dict[str, Any]]:
     """
     Fetches artist data from the Last.fm API, using a local file cache to
-    avoid redundant calls.
+    avoid redundant calls. It now checks for API errors in the response.
 
     Args:
         context: The Dagster asset execution context.
@@ -35,6 +34,7 @@ def fetch_lastfm_data_with_cache(
         A dictionary containing the API response, or None if an error occurs.
     """
     if not all([artist_name, api_key, api_url]):
+        context.log.warning("Last.fm API key or URL not provided. Skipping fetch.")
         return None
 
     cache_key = get_cache_key(artist_name.lower())
@@ -45,7 +45,12 @@ def fetch_lastfm_data_with_cache(
     if cache_file.exists():
         try:
             with open(cache_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                # Also check cached data for errors
+                if "error" in data:
+                    return None
+                context.log.info(f"Using cached Last.fm data for '{artist_name}'.")
+                return data
         except (IOError, json.JSONDecodeError) as e:
             context.log.warning(
                 f"Could not read Last.fm cache file for '{artist_name}'. Refetching. Error: {e}"
@@ -67,14 +72,31 @@ def fetch_lastfm_data_with_cache(
             params=params,
             timeout=LASTFM_REQUEST_TIMEOUT,
         )
+        response.raise_for_status()  # Will raise an exception for 4xx/5xx status
         data = response.json()
 
-        # Save to cache
+        # Check for Last.fm specific error payload
+        if "error" in data:
+            context.log.warning(
+                f"Last.fm API error for '{artist_name}': {data.get('message', 'Unknown error')} "
+                f"(Code: {data['error']})"
+            )
+            # Cache the error response to prevent refetching, but return None
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            return None
+
+        # Save valid data to cache
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
 
         return data
 
+    except requests.exceptions.HTTPError as e:
+        context.log.warning(
+            f"Last.fm request failed for '{artist_name}' with HTTP status {e.response.status_code}."
+        )
+        return None
     except requests.exceptions.RequestException as e:
         context.log.warning(f"Last.fm request failed for '{artist_name}': {e}")
         return None

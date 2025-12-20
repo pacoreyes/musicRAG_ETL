@@ -9,10 +9,16 @@ from music_rag_etl.utils.wikidata_helpers import (
     format_artist_record_from_sparql,
 )
 
-from music_rag_etl.settings import PATH_DATASETS, DECADES_TO_EXTRACT, ARTIST_INDEX_PRE_CLEAN
+from music_rag_etl.settings import (
+    PATH_DATASETS,
+    DECADES_TO_EXTRACT,
+    ARTIST_INDEX_PRE_CLEAN,
+)
 
 
-def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> Callable:
+def create_artist_extraction_asset(
+    decade: str, year_range: tuple[int, int]
+) -> Callable:
     """
     Asset factory for creating a Dagster asset that extracts artist data for a
     specific decade from Wikidata.

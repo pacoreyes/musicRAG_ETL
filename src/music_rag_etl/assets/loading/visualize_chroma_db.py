@@ -48,13 +48,13 @@ def main():
     # Fetch all data from the collection
     total_docs = collection.count()
     limit = max_documents if max_documents else total_docs
-    
+
     print(f"Fetching {limit} documents from collection '{collection_name}'...")
 
     # ChromaDB's get() can be slow for large datasets, so fetch in batches.
     batch_size = 500
     all_results = {"ids": [], "embeddings": [], "metadatas": []}
-    
+
     with tqdm(total=limit, desc="Fetching documents") as pbar:
         for offset in range(0, limit, batch_size):
             batch = collection.get(
@@ -73,11 +73,11 @@ def main():
 
     print("Preparing data for Nomic Atlas...")
     embeddings = np.array(all_results["embeddings"])
-    
+
     # Add the document ID to the metadata for Nomic to use
     metadata = all_results["metadatas"]
     for i, doc_id in enumerate(all_results["ids"]):
-        metadata[i]['id'] = doc_id
+        metadata[i]["id"] = doc_id
 
     # Create the Nomic Atlas map
     print(f"Creating Nomic Atlas project '{project_name}'...")
@@ -87,7 +87,7 @@ def main():
             data=metadata,
             embeddings=embeddings,
             identifier=project_name,
-            id_field='id',
+            id_field="id",
             topic_model=True,
         )
         print("\nSuccessfully created Nomic map!")

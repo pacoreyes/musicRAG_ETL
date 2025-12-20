@@ -37,5 +37,3 @@ defs = Definitions(
         }
     },
 )
-
-

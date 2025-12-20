@@ -8,7 +8,7 @@ from music_rag_etl.settings import ARTIST_INDEX_PRE_CLEAN, ARTIST_INDEX
 @asset(
     name="artist_index_with_relevance",
     deps=["artist_index_clean"],
-    description="Compute relevance score."
+    description="Compute relevance score.",
 )
 def artist_index_with_relevance() -> Path:
     """

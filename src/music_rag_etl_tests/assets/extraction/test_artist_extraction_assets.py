@@ -1,10 +1,12 @@
 import json
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import polars as pl
+import pytest
 from dagster import materialize, build_asset_context, DagsterInstance
 
 from music_rag_etl.assets.extraction.artist_extraction_assets import (
+    _enrich_artist_batch,
     artists_extraction_from_artist_index,
 )
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE
@@ -59,7 +61,7 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
         "artist": {
             "name": "Artist One",
             "tags": {"tag": [{"name": "tagA"}, {"name": "tagB"}]},
-            "similar": {"artist": [{"name": "Similar Artist X"}]}
+            "similar": {"artist": [{"name": "Similar Artist X"}]},
         }
     }
     mock_lastfm_response_q2 = {
@@ -71,21 +73,26 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
     }
 
     # 3. Patch external dependencies: settings and helper functions
-    with patch(
-        "music_rag_etl.assets.extraction.artist_extraction_assets.ARTIST_INDEX",
-        mock_artist_index_path,
-    ), patch(
-        "music_rag_etl.assets.extraction.artist_extraction_assets.ARTISTS_FILE",
-        mock_artists_file_path,
-    ), patch(
-        "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_wikidata_entities_batch_with_cache"
-    ) as mock_wikidata_fetch, patch(
-        "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_lastfm_data_with_cache"
-    ) as mock_lastfm_fetch:
+    with (
+        patch(
+            "music_rag_etl.assets.extraction.artist_extraction_assets.ARTIST_INDEX",
+            mock_artist_index_path,
+        ),
+        patch(
+            "music_rag_etl.assets.extraction.artist_extraction_assets.ARTISTS_FILE",
+            mock_artists_file_path,
+        ),
+        patch(
+            "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_wikidata_entities_batch_with_cache"
+        ) as mock_wikidata_fetch,
+        patch(
+            "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_lastfm_data_with_cache"
+        ) as mock_lastfm_fetch,
+    ):
         # Configure mock return values for the patched helpers
         mock_wikidata_fetch.return_value = mock_wikidata_response
 
-        def lastfm_side_effect(context, artist_name, api_key):
+        def lastfm_side_effect(context, artist_name, api_key, api_url):
             if artist_name == "Artist One":
                 return mock_lastfm_response_q1
             if artist_name == "Artist Two":
@@ -98,7 +105,12 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
         instance = DagsterInstance.ephemeral()
         context = build_asset_context(
             instance=instance,
-            resources={"api_config": {"lastfm_api_key": "dummy_key"}},
+            resources={
+                "api_config": {
+                    "lastfm_api_key": MagicMock(),
+                    "lastfm_api_url": MagicMock(),
+                }
+            },
         )
         result = artists_extraction_from_artist_index(context)
 
@@ -108,7 +120,7 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
 
         output_df = pl.read_ndjson(mock_artists_file_path)
         assert len(output_df) == 2
-        
+
         output_dicts = output_df.to_dicts()
         artist_one_out = next(d for d in output_dicts if d["id"] == "Q1")
         artist_two_out = next(d for d in output_dicts if d["id"] == "Q2")
@@ -127,3 +139,57 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
         assert artist_two_out["genres"] == ["genre-c"]
         assert artist_two_out["tags"] == ["tagC"]
         assert artist_two_out["similar_artists"] == []
+
+
+@pytest.mark.parametrize(
+    "lastfm_data, expected_tags",
+    [
+        (
+            {"artist": {"tags": {"tag": [{"name": "pop"}, {"name": "rock"}]}}},
+            ["pop", "rock"],
+        ),
+        ({"artist": {"tags": {"tag": []}}}, []),
+        ({"artist": {"tags": {}}}, []),
+        ({"artist": {}}, []),
+        ({}, []),
+        (None, []),
+    ],
+)
+@patch(
+    "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_wikidata_entities_batch_with_cache"
+)
+@patch(
+    "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_lastfm_data_with_cache"
+)
+def test_enrich_artist_batch_lastfm_tags(
+    mock_lastfm_fetch,
+    mock_wikidata_fetch,
+    lastfm_data,
+    expected_tags,
+):
+    """
+    Unit test for _enrich_artist_batch focusing on Last.fm tag extraction.
+    """
+    # 1. Mock artist batch and context
+    artist_batch = [
+        {"wikidata_id": "Q1", "artist": "Test Artist", "genres": ["test-genre"]}
+    ]
+    mock_context = MagicMock()
+
+    # 2. Mock API responses
+    mock_wikidata_fetch.return_value = {"Q1": {"id": "Q1", "claims": {}, "aliases": {}}}
+    mock_lastfm_fetch.return_value = lastfm_data
+
+    # 3. Call the function
+    enriched_data = _enrich_artist_batch(
+        artist_batch, mock_context, api_key="dummy_key", api_url="dummy_url"
+    )
+
+    # 4. Assertions
+    assert len(enriched_data) == 1
+    result = enriched_data[0]
+    assert result["id"] == "Q1"
+    assert result["name"] == "Test Artist"
+    assert "tags" in result
+    assert result["tags"] == expected_tags
+    assert isinstance(result["tags"], list)

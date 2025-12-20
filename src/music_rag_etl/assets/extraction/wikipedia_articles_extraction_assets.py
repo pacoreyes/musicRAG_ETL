@@ -14,7 +14,7 @@ from music_rag_etl.settings import (
     WIKIPEDIA_ARTICLES_FILE,
     ARTIST_INDEX,
     GENRES_FILE,
-    PATH_TEMP
+    PATH_TEMP,
 )
 from music_rag_etl.utils.io_helpers import save_to_jsonl, merge_jsonl_files
 from music_rag_etl.utils.transformation_helpers import clean_text_string
@@ -49,7 +49,7 @@ def create_wikipedia_articles_dataset(
     )
 
     wiki_api = wikipediaapi.Wikipedia(user_agent=USER_AGENT, language="en", timeout=30)
-    
+
     _clean_cache_directory(PATH_TEMP)
     context.log.info(f"Cleaned and prepared cache directory at {PATH_TEMP}")
 
@@ -59,21 +59,22 @@ def create_wikipedia_articles_dataset(
 
     # Prepare items with their designated temporary file path
     items_to_process = [
-        (i, row, PATH_TEMP / f"{i}.jsonl")
-        for i, row in enumerate(rows_to_process)
+        (i, row, PATH_TEMP / f"{i}.jsonl") for i, row in enumerate(rows_to_process)
     ]
 
     context.log.info(
         f"Starting concurrent fetching and processing of {total_rows} Wikipedia articles..."
     )
 
-    tokenizer = AutoTokenizer.from_pretrained("nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        "nomic-ai/nomic-embed-text-v1.5", trust_remote_code=True
+    )
 
     text_splitter = RecursiveCharacterTextSplitter.from_huggingface_tokenizer(
         tokenizer,
         chunk_size=2048,
         chunk_overlap=256,
-        separators=["\n\n", "\n", ". ", " ", ""]
+        separators=["\n\n", "\n", ". ", " ", ""],
     )
 
     def process_artist_to_temp_file(item: Tuple[int, Dict[str, Any], Path]):
@@ -103,7 +104,7 @@ def create_wikipedia_articles_dataset(
             title = article_payload["artist"]
             # Create enriched text to prepend to the chunk
             enriched_text = (
-                f"search_document: {article_payload["artist"]} | {chunk_text}"
+                f"search_document: {article_payload['artist']} | {chunk_text}"
             )
             # Remove " . " pattern
             enriched_text = enriched_text.replace(" | . ", " | ")
@@ -122,7 +123,7 @@ def create_wikipedia_articles_dataset(
                 "article": enriched_text,
             }
             artist_chunks.append(chunk_record)
-        
+
         if artist_chunks:
             save_to_jsonl(artist_chunks, temp_file_path)
 
@@ -134,8 +135,10 @@ def create_wikipedia_articles_dataset(
     # Merge temporary files in order
     temp_files_in_order = sorted(PATH_TEMP.glob("*.jsonl"), key=lambda f: int(f.stem))
     merge_jsonl_files(temp_files_in_order, WIKIPEDIA_ARTICLES_FILE)
-    
-    context.log.info(f"Successfully merged {len(temp_files_in_order)} files into {WIKIPEDIA_ARTICLES_FILE}.")
+
+    context.log.info(
+        f"Successfully merged {len(temp_files_in_order)} files into {WIKIPEDIA_ARTICLES_FILE}."
+    )
 
     # Clean up temporary files
     _clean_cache_directory(PATH_TEMP)

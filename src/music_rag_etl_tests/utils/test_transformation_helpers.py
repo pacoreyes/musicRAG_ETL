@@ -9,27 +9,28 @@ from music_rag_etl.utils.transformation_helpers import (
 
 # --- Tests for clean_text ---
 
+
 def test_clean_text():
     """Tests the clean_text function for various cleaning operations."""
     # 1. Setup
     data = {
         "text": [
-            '  hello   world  ',
-            'line one\nline two',
-            'has \"escaped quotes\"',
-            ' extra  spaces ',
-            None
+            "  hello   world  ",
+            "line one\nline two",
+            'has "escaped quotes"',
+            " extra  spaces ",
+            None,
         ]
     }
     df = pl.DataFrame(data)
-    
+
     expected_data = {
         "text": [
             "hello world",
             "line one line two",
             'has "escaped quotes"',
             "extra spaces",
-            None
+            None,
         ]
     }
     expected_df = pl.DataFrame(expected_data)
@@ -43,6 +44,7 @@ def test_clean_text():
 
 # --- Tests for extract_unique_ids_from_column ---
 
+
 def test_extract_unique_ids_from_column():
     """Tests extracting unique IDs from a column of lists."""
     # 1. Setup
@@ -53,12 +55,12 @@ def test_extract_unique_ids_from_column():
             ["Q2", "Q3"],
             ["Q1", "Q4"],
             None,
-            ["Q5", None, "Q1"], # With a None in the list
-            ["Q3", "Q2"],      # Duplicate list
+            ["Q5", None, "Q1"],  # With a None in the list
+            ["Q3", "Q2"],  # Duplicate list
         ],
     }
     df = pl.DataFrame(data)
-    
+
     expected_ids = ["Q1", "Q2", "Q3", "Q4", "Q5"]
 
     # 2. Action
@@ -74,7 +76,7 @@ def test_extract_unique_ids_from_column_empty_and_nulls():
     # Test with empty lists and nulls
     df1 = pl.DataFrame({"genres": [[], None, ["Q1"], []]})
     assert extract_unique_ids_from_column(df1, "genres") == ["Q1"]
-    
+
     # Test with all nulls
     df2 = pl.DataFrame({"genres": [None, None]})
     assert extract_unique_ids_from_column(df2, "genres") == []
@@ -82,4 +84,3 @@ def test_extract_unique_ids_from_column_empty_and_nulls():
     # Test with an empty dataframe
     df3 = pl.DataFrame({"genres": pl.Series([], dtype=pl.List(pl.Utf8))})
     assert extract_unique_ids_from_column(df3, "genres") == []
-

@@ -30,7 +30,7 @@ def execute_sparql_extraction(
     get_query_function: Callable,
     record_processor: Callable,
     label: str,
-    **query_params
+    **query_params,
 ) -> None:
     """
     Orchestrates fetching, processing, and saving data from a SPARQL endpoint.
@@ -41,13 +41,17 @@ def execute_sparql_extraction(
         for batch_num, results_batch in enumerate(
             paginate_sparql_query(context, get_query_function, **query_params), start=1
         ):
-            context.log.info(f"Processing batch {batch_num} for {label}: {len(results_batch)} records")
+            context.log.info(
+                f"Processing batch {batch_num} for {label}: {len(results_batch)} records"
+            )
             for item in results_batch:
                 processed_record = record_processor(item)
                 if processed_record:
-                    outfile.write(json.dumps(processed_record, ensure_ascii=False) + "\n")
+                    outfile.write(
+                        json.dumps(processed_record, ensure_ascii=False) + "\n"
+                    )
                     total_written += 1
-    
+
     context.log.info(f"Total records stored in {output_path.name}: {total_written}")
 
 
@@ -70,9 +74,7 @@ def paginate_sparql_query(
     offset = 0
     while True:
         query = get_query_function(
-            **query_params,
-            limit=WIKIDATA_BATCH_SIZE,
-            offset=offset
+            **query_params, limit=WIKIDATA_BATCH_SIZE, offset=offset
         )
         results = fetch_sparql_query(context, query)
         if not results:
@@ -84,7 +86,7 @@ def paginate_sparql_query(
 def get_best_label(
     record: Dict[str, any],
     base_key: str,
-    lang_priority: List[str] = ['en', 'es', 'fr', 'de']
+    lang_priority: List[str] = ["en", "es", "fr", "de"],
 ) -> Optional[str]:
     """
     Finds the best available label from a SPARQL record based on a language priority list.
@@ -107,7 +109,7 @@ def get_best_label(
     generic_label = record.get(base_key, {}).get("value")
     if generic_label:
         return generic_label
-    
+
     return None
 
 
@@ -129,7 +131,7 @@ def format_artist_record_from_sparql(item: Dict[str, Any]) -> Dict[str, Any] | N
     cleaned_label_text = get_best_label(item, "artistLabel")
     if not cleaned_label_text:
         return None
-    
+
     cleaned_label = " ".join(cleaned_label_text.split())
 
     genres_str = get_sparql_binding_value(item, "genres") or ""
@@ -150,6 +152,36 @@ def format_artist_record_from_sparql(item: Dict[str, Any]) -> Dict[str, Any] | N
     }
 
 
+def resolve_qids_to_labels(
+    context: AssetExecutionContext, qids: List[str]
+) -> Dict[str, str]:
+    """
+    Efficiently resolves a list of Wikidata QIDs to their English labels.
+
+    Args:
+        context: Dagster asset execution context.
+        qids: A list of Wikidata QIDs to resolve.
+
+    Returns:
+        A dictionary mapping the resolved QIDs to their English labels.
+    """
+    if not qids:
+        return {}
+
+    # This function is already designed to be efficient by using batching and a file cache.
+    entities_data = fetch_wikidata_entities_batch_with_cache(context, qids)
+
+    labels_map = {}
+    for qid, entity_info in entities_data.items():
+        label = _get_label_from_entity(entity_info)
+        if label:
+            labels_map[qid] = label
+        else:
+            context.log.warning(f"No English label found for QID {qid}.")
+
+    return labels_map
+
+
 ######################################################################
 #                   3. LOW-LEVEL API & PARSING HELPERS
 #      Core functions that directly interact with Wikidata API
@@ -157,9 +189,13 @@ def format_artist_record_from_sparql(item: Dict[str, Any]) -> Dict[str, Any] | N
 ######################################################################
 
 
+def _get_label_from_entity(entity: Dict[str, Any]) -> Optional[str]:
+    """Safely extracts the English label from a single Wikidata entity dictionary."""
+    return entity.get("labels", {}).get("en", {}).get("value")
+
+
 def fetch_sparql_query(
-    context: AssetExecutionContext,
-    query: str
+    context: AssetExecutionContext, query: str
 ) -> List[Dict[str, Any]]:
     """
     Executes a SPARQL query against the Wikidata endpoint with retries.
@@ -172,7 +208,6 @@ def fetch_sparql_query(
         A list of result dictionaries from the SPARQL query.
     """
     try:
-
         response = make_request_with_retries(
             context=context,
             url=WIKIDATA_SPARQL_URL,
@@ -260,9 +295,7 @@ def fetch_wikidata_entities_batch_with_cache(
             missing_qids.append(qid)
 
     if missing_qids:
-        context.log.info(
-            f"Cache miss for {len(missing_qids)} QIDs. Fetching from API."
-        )
+        context.log.info(f"Cache miss for {len(missing_qids)} QIDs. Fetching from API.")
         api_results = fetch_wikidata_entities_batch(context, missing_qids)
         fetched_entities = api_results.get("entities", {})
 
@@ -273,23 +306,20 @@ def fetch_wikidata_entities_batch_with_cache(
                     json.dump(entity_data, f, ensure_ascii=False)
                 results[qid] = entity_data
             except IOError as e:
-                context.log.error(
-                    f"Could not write cache file for {qid}. Error: {e}"
-                )
+                context.log.error(f"Could not write cache file for {qid}. Error: {e}")
 
     return results
 
 
 def fetch_wikidata_entity(
-    context: AssetExecutionContext,
-    wikidata_id: str
+    context: AssetExecutionContext, wikidata_id: str
 ) -> Dict[str, Any] | None:
     """
     Fetches a Wikidata entity, either from local text cache or the API.
 
     Uses a GET request with retries.
     """
-    if not (wikidata_id and wikidata_id.startswith('Q') and wikidata_id[1:].isdigit()):
+    if not (wikidata_id and wikidata_id.startswith("Q") and wikidata_id[1:].isdigit()):
         context.log.error(f"Malformed QID: {wikidata_id}")
         return None
 
@@ -297,12 +327,14 @@ def fetch_wikidata_entity(
 
     if cache_file_path.exists():
         try:
-            with open(cache_file_path, 'r', encoding='utf-8') as file:
+            with open(cache_file_path, "r", encoding="utf-8") as file:
                 line = file.readline()
                 if line:
                     return json.loads(line)
         except Exception as e:
-            context.log.error(f"Cache read failed for {wikidata_id}, falling back to API: {e}")
+            context.log.error(
+                f"Cache read failed for {wikidata_id}, falling back to API: {e}"
+            )
 
     try:
         entity_url = f"{WIKIDATA_ENTITY_URL}{wikidata_id}.json"
@@ -315,7 +347,7 @@ def fetch_wikidata_entity(
         data = response.json()
 
         cache_file_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(cache_file_path, 'w', encoding='utf-8') as file:
+        with open(cache_file_path, "w", encoding="utf-8") as file:
             file.write(json.dumps(data, ensure_ascii=False) + "\n")
         return data
 
@@ -326,7 +358,9 @@ def fetch_wikidata_entity(
         context.log.error(f"Error decoding JSON for Wikidata entity {wikidata_id}: {e}")
         return None
     except Exception as e:
-        context.log.error(f"An unexpected error occurred while fetching Wikidata entity {wikidata_id}: {e}")
+        context.log.error(
+            f"An unexpected error occurred while fetching Wikidata entity {wikidata_id}: {e}"
+        )
         return None
 
 
@@ -336,8 +370,7 @@ def get_sparql_binding_value(data: Dict[str, Any], key: str) -> Any | None:
 
 
 def parse_wikidata_entity_label(
-    entity_data: Dict[str, Any],
-    entity_id: str
+    entity_data: Dict[str, Any], entity_id: str
 ) -> Optional[str]:
     """
     Parses the JSON response for a Wikidata entity to extract its English label.

@@ -6,7 +6,7 @@ from music_rag_etl.settings import ARTIST_INDEX, ARTIST_INDEX_PRE_CLEAN
 @asset(
     name="artist_index_clean",
     deps=["artist_index"],  # Depends on the merge step
-    description="Deduplicates artists based on QIDs but with conditions."
+    description="Deduplicates artists based on QIDs but with conditions.",
 )
 def deduplicate_artists(context: AssetExecutionContext) -> str:
     """
@@ -26,10 +26,15 @@ def deduplicate_artists(context: AssetExecutionContext) -> str:
     # If both have same "wikidata_id" and "inception" date, choose the first.
 
     clean_lf = (
-        lf
-        .sort("inception", descending=False)  # Sort by inception date ascending (oldest first)
-        .unique(subset=["wikidata_id"], keep="first")  # Keep the first unique wikidata_id
-        .unique(subset=["wikipedia_url"], keep="first")  # Keep the first unique wikidata_id
+        lf.sort(
+            "inception", descending=False
+        )  # Sort by inception date ascending (oldest first)
+        .unique(
+            subset=["wikidata_id"], keep="first"
+        )  # Keep the first unique wikidata_id
+        .unique(
+            subset=["wikipedia_url"], keep="first"
+        )  # Keep the first unique wikidata_id
         .unique(subset=["artist"], keep="first")  # Keep the first unique wikidata_id
     )
 

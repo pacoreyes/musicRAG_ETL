@@ -30,7 +30,7 @@ def test_save_to_jsonl(tmp_path: Path):
 
     # Read the file and check its contents
     lines = output_file.read_text(encoding="utf-8").strip().split("\n")
-    
+
     # Verify the number of lines
     assert len(lines) == len(sample_data)
 
@@ -39,10 +39,11 @@ def test_save_to_jsonl(tmp_path: Path):
         # Parse the JSON from the line and compare with the original data
         reloaded_record = json.loads(line)
         assert reloaded_record == sample_data[i]
-    
+
     # Verify unicode character was written correctly
     reloaded_data = [json.loads(line) for line in lines]
     assert reloaded_data[3]["name"] == "Álvaro"
+
 
 def test_save_to_jsonl_empty_list(tmp_path: Path):
     """
@@ -59,6 +60,7 @@ def test_save_to_jsonl_empty_list(tmp_path: Path):
     assert output_file.exists()
     assert output_file.read_text(encoding="utf-8") == ""
 
+
 def test_save_to_jsonl_creates_directory(tmp_path: Path):
     """
     Tests that save_to_jsonl creates the parent directory if it doesn't exist.
@@ -67,7 +69,7 @@ def test_save_to_jsonl_creates_directory(tmp_path: Path):
     # Define a path with a non-existent parent directory
     output_dir = tmp_path / "new_dir" / "sub_dir"
     output_file = output_dir / "output.jsonl"
-    
+
     assert not output_dir.exists()
 
     sample_data = [{"id": 1, "message": "hello"}]
@@ -78,4 +80,7 @@ def test_save_to_jsonl_creates_directory(tmp_path: Path):
     # 3. Assertions
     assert output_dir.exists()
     assert output_file.exists()
-    assert output_file.read_text(encoding="utf-8").strip() == '{"id": 1, "message": "hello"}'
+    assert (
+        output_file.read_text(encoding="utf-8").strip()
+        == '{"id": 1, "message": "hello"}'
+    )

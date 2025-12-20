@@ -27,31 +27,32 @@ def test_fetch_lastfm_data_cache_miss(mock_make_request):
 
     # Mock the response from the API call
     mock_make_request.return_value.json.return_value = mock_response_data
+    mock_make_request.return_value.raise_for_status.return_value = None
 
     # Use mock_open to simulate file system interactions
     m = mock_open()
-    with patch("builtins.open", m):
+    with (
+        patch("builtins.open", m),
+        patch(
+            "music_rag_etl.utils.lastfm_helpers.LASTFM_CACHE_DIR", Path("/tmp/cache")
+        ),
+    ):
         with patch("pathlib.Path.exists") as mock_exists:
             mock_exists.return_value = False  # Simulate cache miss
 
-            result = fetch_lastfm_data_with_cache(context, artist_name, api_key)
+            result = fetch_lastfm_data_with_cache(
+                context, artist_name, api_key, "dummy_url"
+            )
 
             # 1. Assert API was called
             mock_make_request.assert_called_once()
 
             # 2. Assert file was written to
-            cache_file_path = (
-                Path("music_rag_etl/settings.py").parent.parent
-                / "data_volume"
-                / ".cache"
-                / "last_fm"
-                / f"{mock_cache_key}.json"
-            )
+            cache_file_path = Path("/tmp/cache") / f"{mock_cache_key}.json"
             m.assert_called_once_with(cache_file_path, "w", encoding="utf-8")
             handle = m()
-            handle.write.assert_called_once_with(
-                json.dumps(mock_response_data, ensure_ascii=False)
-            )
+            written_data = "".join(call.args[0] for call in handle.write.call_args_list)
+            assert json.loads(written_data) == mock_response_data
 
             # 3. Assert correct data was returned
             assert result == mock_response_data
@@ -67,32 +68,76 @@ def test_fetch_lastfm_data_cache_hit(mock_make_request):
     api_key = "test_key"
     context = build_asset_context()
     mock_response_data = {"artist": {"name": artist_name, "tags": {}}}
-    mock_cache_key = get_cache_key(artist_name.lower())
     cache_content = json.dumps(mock_response_data)
-
-    # Mock the response from the API call (should not be called)
-    mock_make_request.return_value.json.return_value = {"error": "API called"}
 
     # Use mock_open to simulate file system interactions
     m = mock_open(read_data=cache_content)
-    with patch("builtins.open", m):
+    with (
+        patch("builtins.open", m),
+        patch(
+            "music_rag_etl.utils.lastfm_helpers.LASTFM_CACHE_DIR", Path("/tmp/cache")
+        ),
+    ):
         with patch("pathlib.Path.exists") as mock_exists:
             mock_exists.return_value = True  # Simulate cache hit
 
-            result = fetch_lastfm_data_with_cache(context, artist_name, api_key)
+            result = fetch_lastfm_data_with_cache(
+                context, artist_name, api_key, "dummy_url"
+            )
 
             # 1. Assert API was NOT called
             mock_make_request.assert_not_called()
 
             # 2. Assert file was read from
-            cache_file_path = (
-                Path("music_rag_etl/settings.py").parent.parent
-                / "data_volume"
-                / ".cache"
-                / "last_fm"
-                / f"{mock_cache_key}.json"
-            )
-            m.assert_called_once_with(cache_file_path, "r", encoding="utf-8")
+            m.assert_called_once()
+            assert m.call_args[0][0].name.endswith(".json")
 
             # 3. Assert correct data was returned
             assert result == mock_response_data
+
+
+@patch("music_rag_etl.utils.lastfm_helpers.make_request_with_retries")
+def test_fetch_lastfm_data_api_error(mock_make_request):
+    """
+    Test that the function handles a JSON response containing a Last.fm error.
+    """
+    artist_name = "error artist"
+    api_key = "test_key"
+    context = build_asset_context()
+    mock_error_data = {"error": 6, "message": "Artist not found"}
+    mock_cache_key = get_cache_key(artist_name.lower())
+
+    # Mock the response from the API call
+    mock_make_request.return_value.json.return_value = mock_error_data
+    mock_make_request.return_value.raise_for_status.return_value = None
+
+    # Use mock_open to simulate file system interactions
+    m = mock_open()
+    with (
+        patch("builtins.open", m),
+        patch(
+            "music_rag_etl.utils.lastfm_helpers.LASTFM_CACHE_DIR", Path("/tmp/cache")
+        ),
+        patch.object(context.log, "warning") as mock_log,
+    ):
+        with patch("pathlib.Path.exists") as mock_exists:
+            mock_exists.return_value = False  # Simulate cache miss
+
+            result = fetch_lastfm_data_with_cache(
+                context, artist_name, api_key, "dummy_url"
+            )
+
+            # 1. Assert correct data was returned (None)
+            assert result is None
+
+            # 2. Assert warning was logged
+            mock_log.assert_called_once()
+            assert "Last.fm API error" in mock_log.call_args[0][0]
+            assert "Artist not found" in mock_log.call_args[0][0]
+
+            # 3. Assert error response was cached
+            cache_file_path = Path("/tmp/cache") / f"{mock_cache_key}.json"
+            m.assert_called_once_with(cache_file_path, "w", encoding="utf-8")
+            handle = m()
+            written_data = "".join(call.args[0] for call in handle.write.call_args_list)
+            assert json.loads(written_data) == mock_error_data

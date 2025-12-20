@@ -17,7 +17,7 @@ from music_rag_etl.utils.wikidata_helpers import (
 @asset(
     name="genres_extraction_from_artist_index",
     deps=["artist_index_with_relevance"],
-    description="Extraction of all genres (dict: QID/label) from the Artist index and saves them to a JSONL file."
+    description="Extraction of all genres (dict: QID/label) from the Artist index and saves them to a JSONL file.",
 )
 def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
     """
@@ -30,7 +30,9 @@ def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
     # 1. Read artist index and extract unique genre IDs
     df = pl.read_ndjson(ARTIST_INDEX)
     unique_genre_ids = extract_unique_ids_from_column(df, "genres")
-    context.log.info(f"Found {len(unique_genre_ids)} unique genre IDs in the artist index.")
+    context.log.info(
+        f"Found {len(unique_genre_ids)} unique genre IDs in the artist index."
+    )
 
     context.log.info(f"Processing all {len(unique_genre_ids)} genres for this run.")
 

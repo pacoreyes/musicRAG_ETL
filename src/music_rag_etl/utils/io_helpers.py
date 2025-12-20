@@ -73,11 +73,14 @@ def chunk_list(items: List, size: int):
 
 from contextlib import contextmanager
 
+
 @contextmanager
 def jsonl_writer(file_path: Path):
     """A context manager to write to a JSONL file line by line."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as f:
+
         def writer(d: dict):
             f.write(json.dumps(d, ensure_ascii=False) + "\n")
+
         yield writer

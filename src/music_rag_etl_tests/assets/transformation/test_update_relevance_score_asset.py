@@ -1,15 +1,18 @@
-
 import unittest
 from unittest.mock import patch
 import polars as pl
 from pathlib import Path
 
-from music_rag_etl.assets.transformation.update_relevance_score_asset import artist_index_with_relevance
+from music_rag_etl.assets.transformation.update_relevance_score_asset import (
+    artist_index_with_relevance,
+)
 from music_rag_etl.settings import ARTIST_INDEX_PRE_CLEAN, ARTIST_INDEX
 
-class TestUpdateRelevanceScoreAsset(unittest.TestCase):
 
-    @patch("music_rag_etl.assets.transformation.update_relevance_score_asset.pl.read_ndjson")
+class TestUpdateRelevanceScoreAsset(unittest.TestCase):
+    @patch(
+        "music_rag_etl.assets.transformation.update_relevance_score_asset.pl.read_ndjson"
+    )
     def test_artist_index_with_relevance_normal_case(self, mock_read_ndjson):
         # Arrange
         data = {
@@ -20,6 +23,7 @@ class TestUpdateRelevanceScoreAsset(unittest.TestCase):
         mock_read_ndjson.return_value = mock_df
 
         captured_dfs = []
+
         def capture_self(self, *args, **kwargs):
             captured_dfs.append(self)
 
@@ -31,11 +35,13 @@ class TestUpdateRelevanceScoreAsset(unittest.TestCase):
         self.assertEqual(result_path, ARTIST_INDEX)
         self.assertEqual(len(captured_dfs), 1)
         result_df = captured_dfs[0]
-        
+
         expected_scores = pl.Series("relevance_score", [0.0, 0.5, 1.0])
         self.assertTrue(result_df["relevance_score"].equals(expected_scores))
 
-    @patch("music_rag_etl.assets.transformation.update_relevance_score_asset.pl.read_ndjson")
+    @patch(
+        "music_rag_etl.assets.transformation.update_relevance_score_asset.pl.read_ndjson"
+    )
     def test_artist_index_with_relevance_same_linkcount(self, mock_read_ndjson):
         # Arrange
         data = {
@@ -46,6 +52,7 @@ class TestUpdateRelevanceScoreAsset(unittest.TestCase):
         mock_read_ndjson.return_value = mock_df
 
         captured_dfs = []
+
         def capture_self(self, *args, **kwargs):
             captured_dfs.append(self)
 
@@ -57,9 +64,10 @@ class TestUpdateRelevanceScoreAsset(unittest.TestCase):
         self.assertEqual(result_path, ARTIST_INDEX)
         self.assertEqual(len(captured_dfs), 1)
         result_df = captured_dfs[0]
-        
+
         expected_scores = pl.Series("relevance_score", [0.5, 0.5, 0.5])
         self.assertTrue(result_df["relevance_score"].equals(expected_scores))
+
 
 if __name__ == "__main__":
     unittest.main()
