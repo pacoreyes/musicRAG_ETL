@@ -123,7 +123,7 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
     # 1. Load upstream data
     artist_df = pl.read_ndjson(ARTIST_INDEX)
 
-    artist_df = artist_df.head(20)
+    # artist_df = artist_df.head(20)  # For experimenting
 
     artists_to_process = [
         artist for artist in artist_df.to_dicts() if artist.get("wikipedia_url")
