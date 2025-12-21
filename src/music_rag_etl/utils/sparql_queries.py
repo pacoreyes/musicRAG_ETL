@@ -1,3 +1,45 @@
+def get_tracks_by_album_query(album_qid: str) -> str:
+    """
+    Build the SPARQL query to fetch tracks for an album.
+
+    Args:
+        album_qid: Wikidata QID of the album.
+
+    Returns:
+        A SPARQL query string selecting tracks for the given album.
+    """
+    return f"""
+    SELECT ?track ?trackLabel ?trackNumber WHERE {{
+      ?track wdt:P361 wd:{album_qid}.  # Track is "part of" the album
+      OPTIONAL {{ ?track wdt:P1545 ?trackNumber. }}
+      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+    }}
+    """
+    
+
+def get_albums_by_artist_query(artist_qid: str) -> str:
+    """
+    Build the SPARQL query to fetch albums for an artist.
+
+    Args:
+        artist_qid: Wikidata QID of the artist (e.g., "Q42").
+
+    Returns:
+        A SPARQL query string selecting albums performed by the artist.
+    """
+    return f"""
+    SELECT ?album ?albumLabel ?releaseDate WHERE {{
+      ?album wdt:P175 wd:{artist_qid}.
+      FILTER NOT EXISTS {{ ?album wdt:P31 wd:Q134556. }}   # exclude singles
+      FILTER NOT EXISTS {{ ?album wdt:P7937 wd:Q222910. }}  # exclude compilations
+      FILTER NOT EXISTS {{ ?album wdt:P7937 wd:Q209939. }}  # exclude live albums
+      FILTER NOT EXISTS {{ ?album wdt:P31 wd:Q10590726. }}  # exclude video albums
+      OPTIONAL {{ ?album wdt:P577 ?releaseDate. }}
+      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en". }}
+    }}
+    """
+
+
 def get_artists_by_year_range_query(
     start_year: int, end_year: int, limit: int, offset: int
 ) -> str:

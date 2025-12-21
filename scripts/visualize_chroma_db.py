@@ -10,6 +10,7 @@ import chromadb
 import numpy as np
 import nomic
 from nomic import atlas
+from nomic.data_inference import NomicTopicOptions
 from tqdm import tqdm
 
 from music_rag_etl.settings import DEFAULT_COLLECTION_NAME, CHROMA_DB_PATH
@@ -28,7 +29,7 @@ def main():
         nomic.login(api_key)
 
     collection_name = DEFAULT_COLLECTION_NAME
-    project_name = "music_rag_etl_visualization"
+    project_name = "musicRAG ChromaDB Visualization"
     max_documents = None
 
     if not CHROMA_DB_PATH.exists():
@@ -88,7 +89,10 @@ def main():
             embeddings=embeddings,
             identifier=project_name,
             id_field="id",
-            topic_model=True,
+            topic_model=NomicTopicOptions(
+                build_topic_model=True,
+                topic_label_field="artist_name",
+            ),
         )
         print("\nSuccessfully created Nomic map!")
         print(f"View your interactive map at: {project.maps[0].map_link}")

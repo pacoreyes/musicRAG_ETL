@@ -29,6 +29,110 @@ from music_rag_etl.utils.request_utils import (
 ######################################################################
 
 
+async def async_fetch_sparql_with_cache(
+    context: AssetExecutionContext,
+    artist_qid: str,
+    query: str,
+    session: Optional[aiohttp.ClientSession] = None,
+) -> Dict[str, Any]:
+    """
+    Fetches the results of a SPARQL query, using a local file cache in WIKIDATA_CACHE_DIR.
+    """
+    await asyncio.to_thread(WIKIDATA_CACHE_DIR.mkdir, parents=True, exist_ok=True)
+    # Prefix the filename to avoid conflict with entity QID files
+    cache_file = WIKIDATA_CACHE_DIR / f"sparql_albums_{artist_qid}.json"
+
+    exists = await asyncio.to_thread(cache_file.exists)
+    if exists:
+        try:
+            def read_json():
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            data = await asyncio.to_thread(read_json)
+            context.log.debug(f"Using cached SPARQL results for artist {artist_qid}.")
+            return data
+        except Exception as e:
+            context.log.warning(f"Failed to read cache for {artist_qid}, refetching. Error: {e}")
+
+    # Cache miss
+    try:
+        response_data = await async_make_request_with_retries(
+            context=context,
+            url=WIKIDATA_SPARQL_URL,
+            method="POST",
+            params={"query": query, "format": "json"},
+            headers=WIKIDATA_HEADERS,
+            session=session,
+            timeout=60,
+        )
+        
+        if isinstance(response_data, str):
+            response_data = json.loads(response_data)
+
+        # Cache the successful response
+        def write_json(data):
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        
+        await asyncio.to_thread(write_json, response_data)
+        return response_data
+
+    except Exception as e:
+        context.log.warning(f"SPARQL request failed for artist {artist_qid}: {e}")
+        return {}
+
+
+async def async_fetch_tracks_sparql_with_cache(
+    context: AssetExecutionContext,
+    album_qid: str,
+    query: str,
+    session: Optional[aiohttp.ClientSession] = None,
+) -> Dict[str, Any]:
+    """
+    Fetches the results of a SPARQL query for tracks, using a local file cache.
+    """
+    await asyncio.to_thread(WIKIDATA_CACHE_DIR.mkdir, parents=True, exist_ok=True)
+    cache_file = WIKIDATA_CACHE_DIR / f"sparql_tracks_{album_qid}.json"
+
+    exists = await asyncio.to_thread(cache_file.exists)
+    if exists:
+        try:
+            def read_json():
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            data = await asyncio.to_thread(read_json)
+            context.log.debug(f"Using cached SPARQL results for album {album_qid}.")
+            return data
+        except Exception as e:
+            context.log.warning(f"Failed to read cache for album {album_qid}, refetching. Error: {e}")
+
+    # Cache miss
+    try:
+        response_data = await async_make_request_with_retries(
+            context=context,
+            url=WIKIDATA_SPARQL_URL,
+            method="POST",
+            params={"query": query, "format": "json"},
+            headers=WIKIDATA_HEADERS,
+            session=session,
+            timeout=60,
+        )
+        
+        if isinstance(response_data, str):
+            response_data = json.loads(response_data)
+
+        def write_json(data):
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        
+        await asyncio.to_thread(write_json, response_data)
+        return response_data
+
+    except Exception as e:
+        context.log.warning(f"SPARQL request failed for album {album_qid}: {e}")
+        return {}
+
+
 def execute_sparql_extraction(
     context: AssetExecutionContext,
     output_path: Path,
@@ -484,6 +588,16 @@ def fetch_wikidata_entity(
             f"An unexpected error occurred while fetching Wikidata entity {wikidata_id}: {e}"
         )
         return None
+
+
+def extract_qid_from_wikidata_url(uri: str) -> str | None:
+    """Convert a Wikidata entity URI to a bare QID string."""
+    if not uri:
+        return None
+    prefix = WIKIDATA_ENTITY_URL
+    if uri.startswith(prefix):
+        return uri.removeprefix(prefix)
+    return None
 
 
 def get_sparql_binding_value(data: Dict[str, Any], key: str) -> Any | None:

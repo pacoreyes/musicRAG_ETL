@@ -1,6 +1,6 @@
 import polars as pl
 import re
-from typing import List, Dict
+from typing import List
 
 
 def clean_text(df: pl.DataFrame, col_name: str) -> pl.DataFrame:

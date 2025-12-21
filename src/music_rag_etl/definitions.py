@@ -5,6 +5,8 @@ from music_rag_etl.assets.extraction import (
     wikipedia_articles_extraction_assets,
     genres_extraction_assets,
     artist_extraction_assets,
+    albums_extraction_assets,
+    tracks_extraction_assets,
 )
 from music_rag_etl.assets.transformation import (
     artist_index_preprocess,
@@ -19,6 +21,8 @@ asset_modules = [
     wikipedia_articles_extraction_assets,
     genres_extraction_assets,
     artist_extraction_assets,
+    albums_extraction_assets,
+    tracks_extraction_assets,
 ]
 
 # Load all assets from the specified modules
