@@ -144,10 +144,11 @@ async def async_make_request_with_retries(
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as error:
                 wait_time = initial_backoff * (2**attempt)
-                context.log.warning(
-                    f"Attempt {attempt + 1}/{max_retries} for {method} {url} failed ({type(error).__name__}). "
-                    f"Retrying in {wait_time}s."
-                )
+                log_message = f"Attempt {attempt + 1}/{max_retries} for {method} {url} failed ({type(error).__name__}). "
+                if isinstance(error, aiohttp.ClientResponseError):
+                    log_message += f"WIKIDATA_SPARQL_ERROR: Status={error.status}, Message={error.message}. "
+                
+                context.log.warning(log_message + f"Retrying in {wait_time}s.")
                 await asyncio.sleep(wait_time)
     finally:
         if should_close_session:

@@ -107,7 +107,7 @@ async def create_tracks_asset(context: AssetExecutionContext) -> str:
         results_iterator = process_items_incrementally_async(
             items=album_ids,
             process_func=worker_fn,
-            max_concurrent_tasks=10, 
+            max_concurrent_tasks=5,
             logger=context.log
         )
 

@@ -27,7 +27,9 @@ data/
 output/
 temp/
 data_volume/
-data_volume 21-12-2025 13_42/
+data_volume_copy/
+#data_volume 21-12-2025 13_42/
+#data_volume 21-12-2025 20_05/
 
 # Dagster
 .tmp_*

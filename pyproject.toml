@@ -27,7 +27,8 @@ dependencies = [
     "torch",
     "einops",
     "nomic",
-    "aiohttp"
+    "aiohttp",
+    "gqlalchemy"
 ]
 
 [project.optional-dependencies]
