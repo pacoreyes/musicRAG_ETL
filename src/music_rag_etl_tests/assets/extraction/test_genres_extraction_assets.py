@@ -18,14 +18,14 @@ from music_rag_etl.settings import GENRES_FILE
 )
 @patch("music_rag_etl.assets.extraction.genres_extraction_assets.save_to_jsonl")
 @patch(
-    "music_rag_etl.assets.extraction.genres_extraction_assets.async_fetch_wikidata_entities_batch",
+    "music_rag_etl.assets.extraction.genres_extraction_assets.async_fetch_wikidata_entities_batch_with_cache",
     new_callable=AsyncMock
 )
 @patch(
-    "music_rag_etl.assets.extraction.genres_extraction_assets.parse_wikidata_entity_label"
+    "music_rag_etl.assets.extraction.genres_extraction_assets.clean_text_string"
 )
 async def test_genres_extraction_from_artist_index(
-    mock_parse,
+    mock_clean_text,
     mock_fetch_batch,
     mock_save_to_jsonl,
     mock_extract_unique_ids_from_column,
@@ -36,32 +36,36 @@ async def test_genres_extraction_from_artist_index(
     mock_df = pl.DataFrame(
         {
             "genres": [["Q1", "Q2"], ["Q2", "Q3"]],
+            "wikipedia_url": ["http://valid.url", "http://valid.url"],
         }
     )
     mock_read_ndjson.return_value = mock_df
     mock_extract_unique_ids_from_column.return_value = ["Q1", "Q2", "Q3"]
 
+    # Mock clean_text to return identity for simplicity
+    mock_clean_text.side_effect = lambda x: x
+
     # Mock batch response
-    # The batch fetcher returns a dict of entities
+    # The batch fetcher returns a flat dict of {qid: entity_data}
     async def fetch_side_effect(context, id_chunk, session=None):
-        response = {"entities": {}}
+        response = {}
         for qid in id_chunk:
             if qid == "Q1":
-                response["entities"]["Q1"] = {"labels": {"en": {"value": "Genre 1"}}}
+                response["Q1"] = {
+                    "labels": {"en": {"value": "Genre 1"}},
+                    "aliases": {"en": [{"value": "Alias A"}, {"value": "Alias B"}]}
+                }
             elif qid == "Q2":
-                response["entities"]["Q2"] = {"labels": {"en": {"value": "Genre 2"}}}
+                response["Q2"] = {
+                    "labels": {"en": {"value": "Genre 2"}},
+                    "aliases": {}
+                }
             elif qid == "Q3":
                 # Missing label or entity
                 pass
         return response
-
+    
     mock_fetch_batch.side_effect = fetch_side_effect
-
-    # Mock parse (sync)
-    def parse_side_effect(entity_data, genre_id):
-        return entity_data.get("entities", {}).get(genre_id, {}).get("labels", {}).get("en", {}).get("value")
-
-    mock_parse.side_effect = parse_side_effect
 
     # Act
     result = await genres_extraction_from_artist_index(context)
@@ -72,17 +76,26 @@ async def test_genres_extraction_from_artist_index(
     mock_extract_unique_ids_from_column.assert_called_once()
 
     # We expect fetch_batch to be called.
-    # Since we have 3 IDs and chunk size is defined in settings, 
-    # assuming CHUNK_SIZE is large enough, it calls once.
     assert mock_fetch_batch.call_count >= 1
 
     expected_save_calls = [
-        {"wikidata_id": "Q1", "genre_label": "Genre 1"},
-        {"wikidata_id": "Q2", "genre_label": "Genre 2"},
+        {
+            "wikidata_id": "Q1", 
+            "genre_label": "Genre 1", 
+            "aliases": ["Alias A", "Alias B"]
+        },
+        {
+            "wikidata_id": "Q2", 
+            "genre_label": "Genre 2", 
+            "aliases": []
+        },
     ]
 
     # Get the actual data passed to save_to_jsonl
     actual_saved_data = mock_save_to_jsonl.call_args[0][0]
 
-    # Convert lists of dicts to sets of tuples for order-independent comparison
-    assert set(tuple(d.items()) for d in actual_saved_data) == set(tuple(d.items()) for d in expected_save_calls)
+    # Helper to convert dict to tupleable structure (handling lists inside)
+    def make_hashable(d):
+        return tuple(sorted((k, tuple(v) if isinstance(v, list) else v) for k, v in d.items()))
+
+    assert set(make_hashable(d) for d in actual_saved_data) == set(make_hashable(d) for d in expected_save_calls)

@@ -157,7 +157,7 @@ async def _async_enrich_artist_batch(
 
 @asset(
     name="artists_extraction_from_artist_index",
-    deps=["artist_index_with_relevance"],
+    deps=["genres_extraction_from_artist_index"],
     description="Creates artist dataset with enriched details from Wikidata and Last.fm.",
     required_resource_keys={"api_config"},
 )

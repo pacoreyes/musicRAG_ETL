@@ -27,6 +27,7 @@ data/
 output/
 temp/
 data_volume/
+data_volume 21-12-2025 13_42/
 
 # Dagster
 .tmp_*
