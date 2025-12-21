@@ -33,6 +33,12 @@ async def genres_extraction_from_artist_index(context: AssetExecutionContext) ->
 
     # 1. Read artist index and extract unique genre IDs
     df = pl.read_ndjson(ARTIST_INDEX)
+    
+    # Filter for artists with a valid Wikipedia URL
+    df = df.filter(
+        pl.col("wikipedia_url").is_not_null() & (pl.col("wikipedia_url") != "")
+    )
+    
     unique_genre_ids = extract_unique_ids_from_column(df, "genres")
     context.log.info(
         f"Found {len(unique_genre_ids)} unique genre IDs in the artist index."
@@ -69,13 +75,13 @@ async def genres_extraction_from_artist_index(context: AssetExecutionContext) ->
 
     async with create_aiohttp_session() as session:
         # Process chunks of IDs concurrently
-        # We use max_concurrent_tasks=1 to ensure requests are made in series as per Wikidata policy
+        # We increase concurrency to 50 as requested, staying at the limit of Wikipedia API etiquette.
         worker_fn = partial(async_fetch_and_parse_genre_batch, session=session)
         
         nested_results = await process_items_concurrently_async(
             items=id_chunks,
             process_func=worker_fn,
-            max_concurrent_tasks=1,
+            max_concurrent_tasks=50,
             logger=context.log,
         )
 

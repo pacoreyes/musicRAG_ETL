@@ -98,6 +98,7 @@ async def async_get_artist_info_with_fallback(
     api_key: str,
     api_url: str,
     session: Optional[aiohttp.ClientSession] = None,
+    limiter: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Fetches artist data from Last.fm asynchronously, trying the primary name first, then
@@ -105,7 +106,7 @@ async def async_get_artist_info_with_fallback(
     """
     # 1. Try the primary artist name
     main_artist_data = await async_fetch_lastfm_data_with_cache(
-        context, artist_name, api_key, api_url, artist_mbid, session
+        context, artist_name, api_key, api_url, artist_mbid, session, limiter
     )
     if main_artist_data:
         return main_artist_data
@@ -115,7 +116,7 @@ async def async_get_artist_info_with_fallback(
         for alias in aliases:
             context.log.info(f"Trying alias '{alias}' for artist '{artist_name}'.")
             alias_data = await async_fetch_lastfm_data_with_cache(
-                context, alias, api_key, api_url, artist_mbid, session
+                context, alias, api_key, api_url, artist_mbid, session, limiter
             )
             if alias_data:
                 context.log.info(
@@ -219,6 +220,7 @@ async def async_fetch_lastfm_data_with_cache(
     api_url: str,
     artist_mbid: Optional[str] = None,
     session: Optional[aiohttp.ClientSession] = None,
+    limiter: Optional[Any] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Fetches artist data from the Last.fm API asynchronously, using a local file cache.
@@ -246,6 +248,10 @@ async def async_fetch_lastfm_data_with_cache(
             return data
         except Exception as e:
             context.log.warning(f"Could not read cache for '{artist_name}'. Refetching. Error: {e}")
+
+    # Rate limit check BEFORE making the request
+    if limiter:
+        await limiter.wait()
 
     params = {
         "method": "artist.getInfo",

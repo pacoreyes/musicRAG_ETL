@@ -1,3 +1,4 @@
+import json
 import asyncio
 import aiohttp
 import polars as pl
@@ -5,9 +6,9 @@ from dagster import asset, AssetExecutionContext
 from typing import List, Dict, Any, Optional
 from functools import partial
 
-from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE
+from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE, LASTFM_MAX_RPS
 from music_rag_etl.utils.io_helpers import chunk_list, save_to_jsonl
-from music_rag_etl.utils.concurrency_helpers import process_items_concurrently_async
+from music_rag_etl.utils.concurrency_helpers import process_items_concurrently_async, process_items_incrementally_async, AsyncRateLimiter
 from music_rag_etl.utils.lastfm_helpers import async_get_artist_info_with_fallback
 from music_rag_etl.utils.wikidata_helpers import (
     async_fetch_wikidata_entities_batch_with_cache,
@@ -64,6 +65,7 @@ async def _async_enrich_artist_batch(
     api_key: str,
     api_url: str,
     session: Optional[aiohttp.ClientSession] = None,
+    limiter: Optional[AsyncRateLimiter] = None,
 ) -> List[Dict[str, Any]]:
     """Async worker function to enrich a batch of artists with Wikidata and Last.fm data."""
     enriched_batch = []
@@ -113,7 +115,7 @@ async def _async_enrich_artist_batch(
 
             # Get Last.fm data using fallback logic
             lastfm_data = await async_get_artist_info_with_fallback(
-                context, artist_name, aliases, artist_mbid, api_key, api_url, session=session
+                context, artist_name, aliases, artist_mbid, api_key, api_url, session=session, limiter=limiter
             )
 
             tags = []
@@ -124,12 +126,12 @@ async def _async_enrich_artist_batch(
                     tag["name"]
                     for tag in artist_data.get("tags", {}).get("tag", [])
                     if "name" in tag
-                ][:5]
+                ]
                 similar_artists = [
                     sim["name"]
                     for sim in artist_data.get("similar", {}).get("artist", [])
                     if "name" in sim
-                ][:5]
+                ]
 
             return {
                 "id": qid,
@@ -191,37 +193,52 @@ async def artists_extraction_from_artist_index(context: AssetExecutionContext):
     # (though asyncio stuff isn't pickled here, it's just async).
     # Since we are inside an async asset, we can create a session here.
     
+    # Prepare output file (empty it)
+    ARTISTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(ARTISTS_FILE, "w", encoding="utf-8") as f:
+        pass
+
+    seen_ids = set()
+    total_saved = 0
+
+    # Initialize Global Rate Limiter for Last.fm
+    lastfm_limiter = AsyncRateLimiter(max_rps=LASTFM_MAX_RPS)
+
     async with create_aiohttp_session() as session:
         worker_fn = partial(
-            _async_enrich_artist_batch, context=context, api_key=api_key, api_url=api_url, session=session
+            _async_enrich_artist_batch, 
+            context=context, 
+            api_key=api_key, 
+            api_url=api_url, 
+            session=session,
+            limiter=lastfm_limiter
         )
 
-        # 4. Process batches concurrently
-        # max_concurrent_tasks=1 ensures we respect Wikidata serial etiquette for the batch requests.
+        # 4. Process batches incrementally
+        # max_concurrent_tasks=50 ensures we respect Wikidata serial etiquette for the batch requests.
         # But inside each batch, LastFM requests happen concurrently.
-        nested_results = await process_items_concurrently_async(
+        iterator = process_items_incrementally_async(
             items=artist_batches, 
             process_func=worker_fn, 
-            max_concurrent_tasks=1,
+            max_concurrent_tasks=50,
             logger=context.log
         )
 
-    # 5. Flatten, deduplicate, and save results
-    all_results = [item for sublist in nested_results for item in sublist]
-    context.log.info(f"Successfully enriched {len(all_results)} artists.")
+        async for batch_result in iterator:
+            unique_results = []
+            for record in batch_result:
+                if record["id"] not in seen_ids:
+                    unique_results.append(record)
+                    seen_ids.add(record["id"])
+            
+            if unique_results:
+                with open(ARTISTS_FILE, "a", encoding="utf-8") as f:
+                    for record in unique_results:
+                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                
+                total_saved += len(unique_results)
+                context.log.info(f"Saved {len(unique_results)} new artists. Total: {total_saved}")
 
-    seen_ids = set()
-    unique_results = []
-    for record in all_results:
-        if record["id"] not in seen_ids:
-            unique_results.append(record)
-            seen_ids.add(record["id"])
-
-    context.log.info(
-        f"Deduplicated results from {len(all_results)} to {len(unique_results)}."
-    )
-
-    save_to_jsonl(unique_results, ARTISTS_FILE)
-    context.log.info(f"Successfully saved unique artist data to {ARTISTS_FILE}.")
+    context.log.info(f"Successfully finished enrichment. Total artists saved: {total_saved}")
 
     return str(ARTISTS_FILE)

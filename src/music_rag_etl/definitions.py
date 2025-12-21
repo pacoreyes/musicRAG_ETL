@@ -7,8 +7,7 @@ from music_rag_etl.assets.extraction import (
     artist_extraction_assets,
 )
 from music_rag_etl.assets.transformation import (
-    artist_index_cleaning_assets,
-    update_relevance_score_asset,
+    artist_index_preprocess,
 )
 from music_rag_etl import assets as root_assets
 
@@ -16,8 +15,7 @@ from music_rag_etl import assets as root_assets
 asset_modules = [
     root_assets,
     artist_index_extraction_assets,
-    artist_index_cleaning_assets,
-    update_relevance_score_asset,
+    artist_index_preprocess,
     wikipedia_articles_extraction_assets,
     genres_extraction_assets,
     artist_extraction_assets,
