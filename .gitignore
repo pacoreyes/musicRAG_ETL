@@ -31,3 +31,6 @@ data_volume 21-12-2025 13_42/
 
 # Dagster
 .tmp_*
+
+#Gemini
+.gemini/

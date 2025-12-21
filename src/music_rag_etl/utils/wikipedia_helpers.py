@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any
 import wikipediaapi
 from dagster import AssetExecutionContext
 
-from music_rag_etl.settings import WIKIPEDIA_CACHE_DIR, WIKIDATA_ENTITY_URL
+from music_rag_etl.settings import WIKIPEDIA_CACHE_DIR, WIKIDATA_ENTITY_URL, WIKIPEDIA_HEADERS
 from music_rag_etl.utils.transformation_helpers import map_genre_ids_to_labels
 from music_rag_etl.utils.request_utils import async_make_request_with_retries
 
@@ -118,6 +118,7 @@ async def async_get_wikipedia_page(
             url=WIKIPEDIA_API_URL,
             method="GET",
             params=params,
+            headers=WIKIPEDIA_HEADERS,  # Pass the headers here
             session=session,
         )
 

@@ -80,12 +80,12 @@ async def test_genres_extraction_from_artist_index(
 
     expected_save_calls = [
         {
-            "wikidata_id": "Q1", 
+            "id": "Q1", 
             "genre_label": "Genre 1", 
             "aliases": ["Alias A", "Alias B"]
         },
         {
-            "wikidata_id": "Q2", 
+            "id": "Q2", 
             "genre_label": "Genre 2", 
             "aliases": []
         },

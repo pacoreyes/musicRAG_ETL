@@ -305,3 +305,6 @@ When you propose changes:
   ```python
   # File: path/to/file.py
   ...
+
+## 13. dagster
+The paterialization of all assets must use the create and report patter when building JSONL files as output. That means that the JSONL file must be create or empyed upfront, and row by row should be append, avoiding bloating memory.

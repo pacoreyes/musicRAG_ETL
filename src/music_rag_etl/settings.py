@@ -76,6 +76,12 @@ WIKIDATA_HEADERS = {
     "Accept": "application/json",
 }
 
+# --- Wikipedia ---
+WIKIPEDIA_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/json",
+}
+
 # --- Last.fm ---
 LASTFM_MAX_RPS = 5
 LASTFM_REQUEST_TIMEOUT = 10

@@ -28,16 +28,17 @@ def append_record_to_jsonl(record: Dict, file_path: Path, lock: threading.Lock):
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def save_to_jsonl(data: List[Dict], file_path: Path):
+def save_to_jsonl(data: List[Dict], file_path: Path, mode: str = "w"):
     """
     Saves a list of dictionaries to a file in JSONL format.
 
     Args:
         data: The list of dictionary records to save.
         file_path: The Path object for the output file.
+        mode: The file open mode ('w' for write/overwrite, 'a' for append).
     """
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path, "w", encoding="utf-8") as f:
+    with open(file_path, mode, encoding="utf-8") as f:
         for record in data:
             json_string = json.dumps(record, ensure_ascii=False)
             f.write(json_string + "\n")
