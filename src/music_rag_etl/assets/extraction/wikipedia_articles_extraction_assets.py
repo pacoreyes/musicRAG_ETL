@@ -1,11 +1,12 @@
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+import asyncio
+import aiohttp
+from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
 from transformers import AutoTokenizer
 import polars as pl
-import wikipediaapi
 from dagster import asset, AssetExecutionContext
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -18,7 +19,9 @@ from music_rag_etl.settings import (
 )
 from music_rag_etl.utils.io_helpers import save_to_jsonl, merge_jsonl_files
 from music_rag_etl.utils.transformation_helpers import clean_text_string
-from music_rag_etl.utils.wikipedia_helpers import fetch_artist_article_payload
+from music_rag_etl.utils.concurrency_helpers import process_items_concurrently_async
+from music_rag_etl.utils.wikipedia_helpers import async_fetch_artist_article_payload
+from music_rag_etl.utils.request_utils import create_aiohttp_session
 
 
 def _clean_cache_directory(cache_dir: Path):
@@ -33,7 +36,7 @@ def _clean_cache_directory(cache_dir: Path):
     deps=["genres_extraction_from_artist_index"],
     description="Fetch raw Wikipedia article text, split them in chunks and enrich them with metadata.",
 )
-def create_wikipedia_articles_dataset(
+async def create_wikipedia_articles_dataset(
     context: AssetExecutionContext,
 ) -> Path:
     """
@@ -47,8 +50,6 @@ def create_wikipedia_articles_dataset(
     genre_lookup = dict(
         zip(genres_df["wikidata_id"].to_list(), genres_df["genre_label"].to_list())
     )
-
-    wiki_api = wikipediaapi.Wikipedia(user_agent=USER_AGENT, language="en", timeout=30)
 
     _clean_cache_directory(PATH_TEMP)
     context.log.info(f"Cleaned and prepared cache directory at {PATH_TEMP}")
@@ -77,21 +78,31 @@ def create_wikipedia_articles_dataset(
         separators=["\n\n", "\n", ". ", " ", ""],
     )
 
-    def process_artist_to_temp_file(item: Tuple[int, Dict[str, Any], Path]):
+    async def async_process_artist_to_temp_file(
+        item: Tuple[int, Dict[str, Any], Path],
+        session: aiohttp.ClientSession
+    ):
         """
         Worker function: fetches an article, processes it, and writes chunks to a temporary JSONL file.
         """
         _, artist_row, temp_file_path = item
-        article_payload = fetch_artist_article_payload(
+        
+        # Async fetch
+        article_payload = await async_fetch_artist_article_payload(
             context=context,
-            wiki_api=wiki_api,
             artist_row=artist_row,
             genre_lookup=genre_lookup,
+            session=session
         )
 
         if not article_payload or not article_payload.get("page_text"):
             return
 
+        # CPU bound text processing - strictly speaking should be in run_in_executor if heavy,
+        # but for simplicity we keep it here as the main loop. 
+        # Since tokenizer/splitter might be CPU heavy, we'll see. 
+        # For now, running in the loop is acceptable if not blocking too long.
+        
         cleaned_article = clean_text_string(article_payload["page_text"])
         chunks = text_splitter.split_text(cleaned_article)
         total_chunks = len(chunks)
@@ -125,10 +136,18 @@ def create_wikipedia_articles_dataset(
             artist_chunks.append(chunk_record)
 
         if artist_chunks:
+            # Sync file write (fast enough for temp files)
             save_to_jsonl(artist_chunks, temp_file_path)
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        list(executor.map(process_artist_to_temp_file, items_to_process))
+    async with create_aiohttp_session() as session:
+        worker_fn = partial(async_process_artist_to_temp_file, session=session)
+        
+        await process_items_concurrently_async(
+            items=items_to_process,
+            process_func=worker_fn,
+            max_concurrent_tasks=10, # Wikipedia can handle more concurrency
+            logger=context.log
+        )
 
     context.log.info("Concurrent processing finished. Merging temporary files...")
 

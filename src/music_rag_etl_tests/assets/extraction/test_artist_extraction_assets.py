@@ -1,18 +1,20 @@
 import json
-from unittest.mock import patch, MagicMock
+import asyncio
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import polars as pl
 import pytest
 from dagster import materialize, build_asset_context, DagsterInstance
 
 from music_rag_etl.assets.extraction.artist_extraction_assets import (
-    _enrich_artist_batch,
+    _async_enrich_artist_batch,
     artists_extraction_from_artist_index,
 )
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE
 
 
-def test_artists_extraction_from_artist_index_asset(tmp_path):
+@pytest.mark.asyncio
+async def test_artists_extraction_from_artist_index_asset(tmp_path):
     """
     Integration test for the artists_extraction_from_artist_index asset.
     """
@@ -57,6 +59,9 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
             "aliases": {"en": [{"value": "alias2"}]},
         },
     }
+    
+    mock_country_labels = {"Q_US": "United States"} # Dummy example
+
     mock_lastfm_response_q1 = {
         "artist": {
             "name": "Artist One",
@@ -83,16 +88,23 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
             mock_artists_file_path,
         ),
         patch(
-            "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_wikidata_entities_batch_with_cache"
+            "music_rag_etl.assets.extraction.artist_extraction_assets.async_fetch_wikidata_entities_batch_with_cache",
+            new_callable=AsyncMock
         ) as mock_wikidata_fetch,
         patch(
-            "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_lastfm_data_with_cache"
+            "music_rag_etl.assets.extraction.artist_extraction_assets.async_resolve_qids_to_labels",
+            new_callable=AsyncMock
+        ) as mock_resolve_labels,
+        patch(
+            "music_rag_etl.assets.extraction.artist_extraction_assets.async_get_artist_info_with_fallback",
+            new_callable=AsyncMock
         ) as mock_lastfm_fetch,
     ):
         # Configure mock return values for the patched helpers
         mock_wikidata_fetch.return_value = mock_wikidata_response
+        mock_resolve_labels.return_value = mock_country_labels
 
-        def lastfm_side_effect(context, artist_name, api_key, api_url):
+        async def lastfm_side_effect(context, artist_name, aliases, mbid, api_key, api_url, session=None):
             if artist_name == "Artist One":
                 return mock_lastfm_response_q1
             if artist_name == "Artist Two":
@@ -112,7 +124,9 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
                 }
             },
         )
-        result = artists_extraction_from_artist_index(context)
+        
+        # Call the async asset function
+        result = await artists_extraction_from_artist_index(context)
 
         # 5. Verify the output
         assert result == str(mock_artists_file_path)
@@ -156,19 +170,27 @@ def test_artists_extraction_from_artist_index_asset(tmp_path):
     ],
 )
 @patch(
-    "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_wikidata_entities_batch_with_cache"
+    "music_rag_etl.assets.extraction.artist_extraction_assets.async_fetch_wikidata_entities_batch_with_cache",
+    new_callable=AsyncMock
 )
 @patch(
-    "music_rag_etl.assets.extraction.artist_extraction_assets.fetch_lastfm_data_with_cache"
+    "music_rag_etl.assets.extraction.artist_extraction_assets.async_resolve_qids_to_labels",
+    new_callable=AsyncMock
 )
-def test_enrich_artist_batch_lastfm_tags(
+@patch(
+    "music_rag_etl.assets.extraction.artist_extraction_assets.async_get_artist_info_with_fallback",
+    new_callable=AsyncMock
+)
+@pytest.mark.asyncio
+async def test_enrich_artist_batch_lastfm_tags(
     mock_lastfm_fetch,
+    mock_resolve_labels,
     mock_wikidata_fetch,
     lastfm_data,
     expected_tags,
 ):
     """
-    Unit test for _enrich_artist_batch focusing on Last.fm tag extraction.
+    Unit test for _async_enrich_artist_batch focusing on Last.fm tag extraction.
     """
     # 1. Mock artist batch and context
     artist_batch = [
@@ -178,10 +200,11 @@ def test_enrich_artist_batch_lastfm_tags(
 
     # 2. Mock API responses
     mock_wikidata_fetch.return_value = {"Q1": {"id": "Q1", "claims": {}, "aliases": {}}}
+    mock_resolve_labels.return_value = {}
     mock_lastfm_fetch.return_value = lastfm_data
 
     # 3. Call the function
-    enriched_data = _enrich_artist_batch(
+    enriched_data = await _async_enrich_artist_batch(
         artist_batch, mock_context, api_key="dummy_key", api_url="dummy_url"
     )
 

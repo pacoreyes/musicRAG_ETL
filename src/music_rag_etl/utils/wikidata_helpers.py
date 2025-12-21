@@ -1,4 +1,6 @@
 import json
+import asyncio
+import aiohttp
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Generator
 
@@ -14,7 +16,10 @@ from music_rag_etl.settings import (
     WIKIDATA_HEADERS,
     WIKIDATA_BATCH_SIZE,
 )
-from music_rag_etl.utils.request_utils import make_request_with_retries
+from music_rag_etl.utils.request_utils import (
+    make_request_with_retries,
+    async_make_request_with_retries,
+)
 
 
 ######################################################################
@@ -182,6 +187,30 @@ def resolve_qids_to_labels(
     return labels_map
 
 
+async def async_resolve_qids_to_labels(
+    context: AssetExecutionContext,
+    qids: List[str],
+    session: Optional[aiohttp.ClientSession] = None,
+) -> Dict[str, str]:
+    """
+    Efficiently resolves a list of Wikidata QIDs to their English labels asynchronously.
+    """
+    if not qids:
+        return {}
+
+    entities_data = await async_fetch_wikidata_entities_batch_with_cache(context, qids, session)
+
+    labels_map = {}
+    for qid, entity_info in entities_data.items():
+        label = _get_label_from_entity(entity_info)
+        if label:
+            labels_map[qid] = label
+        else:
+            context.log.warning(f"No English label found for QID {qid}.")
+
+    return labels_map
+
+
 ######################################################################
 #                   3. LOW-LEVEL API & PARSING HELPERS
 #      Core functions that directly interact with Wikidata API
@@ -233,7 +262,7 @@ def fetch_wikidata_entities_batch(
 
     Args:
         context: Dagster asset execution context.
-        qids: A list of Wikidata QIDs (e.g., ["Q123", "Q456"]).
+        qids: A list of Wikidata QIDs (e.g., ["Q123", "Q456"])
 
     Returns:
         The JSON response from the API, typically containing an 'entities' dictionary.
@@ -267,6 +296,43 @@ def fetch_wikidata_entities_batch(
         context.log.error(f"Error decoding JSON for entity batch: {e}")
         return {}
 
+
+async def async_fetch_wikidata_entities_batch(
+    context: AssetExecutionContext,
+    qids: List[str],
+    session: Optional[aiohttp.ClientSession] = None,
+) -> Dict[str, Any]:
+    """
+    Fetches a batch of Wikidata entities from the API asynchronously.
+    """
+    if not qids:
+        return {}
+
+    # Per Wikidata API docs, up to 50 IDs can be joined with a '|'
+    id_string = "|".join(qids)
+    params = {
+        "action": "wbgetentities",
+        "ids": id_string,
+        "props": "labels|aliases|claims",
+        "languages": "en",
+        "format": "json",
+    }
+
+    try:
+        response_data = await async_make_request_with_retries(
+            context=context,
+            url=settings.WIKIDATA_API_URL,
+            method="GET",
+            params=params,
+            headers=settings.WIKIDATA_HEADERS,
+            session=session,
+        )
+        if isinstance(response_data, str):
+            return json.loads(response_data)
+        return response_data
+    except Exception as e:
+        context.log.error(f"Unrecoverable error fetching entity batch async: {e}")
+        return {}
 
 def fetch_wikidata_entities_batch_with_cache(
     context: AssetExecutionContext, qids: List[str]
@@ -306,6 +372,62 @@ def fetch_wikidata_entities_batch_with_cache(
                     json.dump(entity_data, f, ensure_ascii=False)
                 results[qid] = entity_data
             except IOError as e:
+                context.log.error(f"Could not write cache file for {qid}. Error: {e}")
+
+    return results
+
+
+async def async_fetch_wikidata_entities_batch_with_cache(
+    context: AssetExecutionContext,
+    qids: List[str],
+    session: Optional[aiohttp.ClientSession] = None,
+) -> Dict[str, Any]:
+    """
+    Fetches a batch of Wikidata entities asynchronously, utilizing a local file cache
+    to avoid redundant API calls.
+    """
+    results = {}
+    missing_qids = []
+
+    # Ensure cache dir exists (sync operation is fine here as it's quick, or use to_thread)
+    await asyncio.to_thread(WIKIDATA_CACHE_DIR.mkdir, parents=True, exist_ok=True)
+
+    # Read cache
+    for qid in qids:
+        cache_file_path = WIKIDATA_CACHE_DIR / f"{qid}.json"
+        
+        # Check existence (fast sync op)
+        exists = await asyncio.to_thread(cache_file_path.exists)
+        if exists:
+            try:
+                def read_json():
+                    with open(cache_file_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                
+                results[qid] = await asyncio.to_thread(read_json)
+            except Exception as e:
+                context.log.warning(
+                    f"Could not read cache file for {qid}, refetching. Error: {e}"
+                )
+                missing_qids.append(qid)
+        else:
+            missing_qids.append(qid)
+
+    if missing_qids:
+        context.log.info(f"Cache miss for {len(missing_qids)} QIDs. Fetching from API.")
+        api_results = await async_fetch_wikidata_entities_batch(context, missing_qids, session)
+        fetched_entities = api_results.get("entities", {})
+
+        for qid, entity_data in fetched_entities.items():
+            cache_file_path = WIKIDATA_CACHE_DIR / f"{qid}.json"
+            try:
+                def write_json(path, data):
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False)
+                
+                await asyncio.to_thread(write_json, cache_file_path, entity_data)
+                results[qid] = entity_data
+            except Exception as e:
                 context.log.error(f"Could not write cache file for {qid}. Error: {e}")
 
     return results

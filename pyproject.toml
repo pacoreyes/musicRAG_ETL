@@ -26,13 +26,15 @@ dependencies = [
     "transformers",
     "torch",
     "einops",
-    "nomic"
+    "nomic",
+    "aiohttp"
 ]
 
 [project.optional-dependencies]
 dev = [
     "dagster-webserver",
     "pytest",
+    "pytest-asyncio",
 ]
 
 [build-system]

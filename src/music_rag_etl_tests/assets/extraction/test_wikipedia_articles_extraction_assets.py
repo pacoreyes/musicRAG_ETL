@@ -1,6 +1,6 @@
+import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, call
-from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch, MagicMock, call, AsyncMock
 
 import polars as pl
 from dagster import build_asset_context
@@ -8,9 +8,10 @@ from dagster import build_asset_context
 from music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets import (
     create_wikipedia_articles_dataset,
 )
-from music_rag_etl.settings import WIKIDATA_ENTITY_PREFIX_URL, PATH_TEMP
+from music_rag_etl.settings import PATH_TEMP
 
 
+@pytest.mark.asyncio
 @patch("pathlib.Path.glob")
 @patch(
     "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets._clean_cache_directory"
@@ -22,22 +23,20 @@ from music_rag_etl.settings import WIKIDATA_ENTITY_PREFIX_URL, PATH_TEMP
     "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.save_to_jsonl"
 )
 @patch(
-    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.fetch_artist_article_payload"
+    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.async_fetch_artist_article_payload",
+    new_callable=AsyncMock
 )
 @patch(
     "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.pl.read_ndjson"
 )
 @patch(
-    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.wikipediaapi.Wikipedia"
+    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.process_items_concurrently_async",
+    new_callable=AsyncMock
 )
-@patch(
-    "music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets.ThreadPoolExecutor"
-)
-def test_create_wikipedia_articles_dataset_temp_file_workflow(
-    mock_executor: MagicMock,
-    mock_wiki_api: MagicMock,
+async def test_create_wikipedia_articles_dataset_temp_file_workflow(
+    mock_process_concurrently: AsyncMock,
     mock_read_ndjson: MagicMock,
-    mock_fetch_payload: MagicMock,
+    mock_fetch_payload: AsyncMock,
     mock_save_to_jsonl: MagicMock,
     mock_merge_jsonl: MagicMock,
     mock_clean_cache: MagicMock,
@@ -49,8 +48,9 @@ def test_create_wikipedia_articles_dataset_temp_file_workflow(
     # --- Mocks Setup ---
     context = build_asset_context()
 
-    # Mock ThreadPoolExecutor to run sequentially in tests
-    mock_executor.return_value.__enter__.return_value.map = map
+    # We mock process_items_concurrently_async to capture the worker function and items.
+    # We will then execute the worker function manually to verify logic.
+    mock_process_concurrently.return_value = [] # Return value ignored in asset logic, just needs to be awaitable list
 
     # Mock the glob call to simulate finding the temp files
     expected_temp_files = [
@@ -80,7 +80,7 @@ def test_create_wikipedia_articles_dataset_temp_file_workflow(
         "genres": [],
         "inception_year": 2000,
         "wikipedia_url": "url_a",
-        "wikidata_entity": "Q123",
+        "wikidata_id": "Q123",
         "references_score": 10,
     }
     mock_payload_b = {
@@ -89,13 +89,28 @@ def test_create_wikipedia_articles_dataset_temp_file_workflow(
         "genres": [],
         "inception_year": 2000,
         "wikipedia_url": "url_b",
-        "wikidata_entity": "Q456",
+        "wikidata_id": "Q456",
         "references_score": 10,
     }
     mock_fetch_payload.side_effect = [mock_payload_a, mock_payload_b]
 
     # --- Run the Asset ---
-    result_path = create_wikipedia_articles_dataset(context)
+    result_path = await create_wikipedia_articles_dataset(context)
+
+    # --- Manually Execute Worker Logic to Test It ---
+    # Retrieve the worker function passed to process_items_concurrently_async
+    assert mock_process_concurrently.called
+    call_kwargs = mock_process_concurrently.call_args.kwargs
+    items = call_kwargs["items"]
+    worker_fn = call_kwargs["process_func"] # This is a partial
+
+    # Execute worker for each item
+    # Note: worker_fn expects (item) because session is already partialled in?
+    # No, in code: worker_fn = partial(async_process_artist_to_temp_file, session=session)
+    # The signature of async_process_artist_to_temp_file is (item, session).
+    # So calling worker_fn(item) works.
+    for item in items:
+        await worker_fn(item)
 
     # --- Assertions ---
 
@@ -109,6 +124,7 @@ def test_create_wikipedia_articles_dataset_temp_file_workflow(
     second_call = mock_save_to_jsonl.call_args_list[1]
 
     # Check first call (Artist A)
+    # The chunk structure might depend on splitter, but metadata check is robust
     assert first_call.args[0][0]["metadata"]["artist_name"] == "Artist A"
     assert first_call.args[1] == PATH_TEMP / "0.jsonl"
 
@@ -125,4 +141,10 @@ def test_create_wikipedia_articles_dataset_temp_file_workflow(
     assert passed_files_list == expected_temp_files
 
     # 4. Assert that the final path is returned
-    assert isinstance(result_path, Path)
+    # The return value comes from the function return, not the mock execution
+    # Wait, create_wikipedia_articles_dataset returns WIKIPEDIA_ARTICLES_FILE from settings
+    # We didn't patch WIKIPEDIA_ARTICLES_FILE, but imported it.
+    # result_path should equal imported WIKIPEDIA_ARTICLES_FILE
+    # But wait, result_path is returned by the asset.
+    from music_rag_etl.settings import WIKIPEDIA_ARTICLES_FILE
+    assert result_path == WIKIPEDIA_ARTICLES_FILE

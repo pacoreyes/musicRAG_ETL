@@ -1,8 +1,9 @@
 import logging
 import sys
 import threading
+import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Awaitable
 
 
 def process_items_concurrently_with_lock(
@@ -70,4 +71,48 @@ def process_items_concurrently(
                     logger.error(error_message)
                 else:
                     print(error_message, file=sys.stderr)
+    return results
+
+
+async def process_items_concurrently_async(
+    items: Iterable[Any],
+    process_func: Callable[[Any], Awaitable[Any]],
+    max_concurrent_tasks: int = 5,
+    logger: Optional[logging.Logger] = None,
+) -> list[Any]:
+    """
+    Processes a list of items concurrently using asyncio with a semaphore.
+
+    Args:
+        items: An iterable of items to process.
+        process_func: An async function that takes one item and returns a result.
+        max_concurrent_tasks: The maximum number of concurrent tasks.
+                              Set to 1 for serial execution (e.g., for Wikidata).
+        logger: A logger instance for structured logging.
+
+    Returns:
+        A list of results from processing the items. It filters out None results.
+    """
+    semaphore = asyncio.Semaphore(max_concurrent_tasks)
+    results = []
+
+    async def sem_task(item: Any):
+        async with semaphore:
+            try:
+                result = await process_func(item)
+                return result
+            except Exception as e:
+                error_message = f"Error processing item: {e}"
+                if logger:
+                    logger.error(error_message)
+                else:
+                    print(error_message, file=sys.stderr)
+                return None
+
+    tasks = [sem_task(item) for item in items]
+    # We use return_exceptions=False (default behavior of gather with simple await)
+    # but we are catching exceptions inside sem_task, so gather will return None for failures.
+    all_results = await asyncio.gather(*tasks)
+
+    results = [res for res in all_results if res is not None]
     return results

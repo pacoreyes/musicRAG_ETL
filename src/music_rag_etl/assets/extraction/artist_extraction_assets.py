@@ -1,15 +1,19 @@
+import asyncio
+import aiohttp
 import polars as pl
 from dagster import asset, AssetExecutionContext
 from typing import List, Dict, Any, Optional
+from functools import partial
 
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE
 from music_rag_etl.utils.io_helpers import chunk_list, save_to_jsonl
-from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
-from music_rag_etl.utils.lastfm_helpers import get_artist_info_with_fallback
+from music_rag_etl.utils.concurrency_helpers import process_items_concurrently_async
+from music_rag_etl.utils.lastfm_helpers import async_get_artist_info_with_fallback
 from music_rag_etl.utils.wikidata_helpers import (
-    fetch_wikidata_entities_batch_with_cache,
-    resolve_qids_to_labels,
+    async_fetch_wikidata_entities_batch_with_cache,
+    async_resolve_qids_to_labels,
 )
+from music_rag_etl.utils.request_utils import create_aiohttp_session
 
 
 def _parse_artist_country(entity_data: Dict[str, Any]) -> Optional[str]:
@@ -20,12 +24,18 @@ def _parse_artist_country(entity_data: Dict[str, Any]) -> Optional[str]:
         main_snak = claims["P495"][0].get("mainsnak", {})
         if main_snak.get("snaktype") == "value":
             country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
+            if isinstance(country_id, dict):
+                 print(f"DEBUG: Found dict as country_id: {country_id}")
+                 return None
             return country_id
     # Property P27: country of citizenship
     if "P27" in claims:
         main_snak = claims["P27"][0].get("mainsnak", {})
         if main_snak.get("snaktype") == "value":
             country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
+            if isinstance(country_id, dict):
+                 print(f"DEBUG: Found dict as country_id: {country_id}")
+                 return None
             return country_id
     return None
 
@@ -48,74 +58,99 @@ def _parse_artist_mbid(entity_data: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _enrich_artist_batch(
+async def _async_enrich_artist_batch(
     artist_batch: List[Dict[str, Any]],
     context: AssetExecutionContext,
     api_key: str,
     api_url: str,
+    session: Optional[aiohttp.ClientSession] = None,
 ) -> List[Dict[str, Any]]:
-    """Worker function to enrich a batch of artists with Wikidata and Last.fm data."""
+    """Async worker function to enrich a batch of artists with Wikidata and Last.fm data."""
     enriched_batch = []
     qids_in_batch = [artist["wikidata_id"] for artist in artist_batch]
 
-    # 1. Fetch all Wikidata entities for the batch
-    wikidata_entities = fetch_wikidata_entities_batch_with_cache(context, qids_in_batch)
+    # Create a local session if one wasn't provided, though typically one should be passed.
+    # process_items_concurrently_async doesn't easily allow passing a shared session to all
+    # unless we bake it into the partial. We will assume a session is managed inside or
+    # created per batch if not passed.
+    # For best performance, we should ideally share a session.
+    should_close_session = False
+    if session is None:
+        session = create_aiohttp_session()
+        should_close_session = True
 
-    # 2. Collect all unique country QIDs from the current artist batch
-    country_qids = set()
-    for qid in qids_in_batch:
-        artist_info = wikidata_entities.get(qid, {})
-        country_qid = _parse_artist_country(artist_info)
-        if country_qid:
-            country_qids.add(country_qid)
-
-    # 3. Resolve these country QIDs to labels in a single batch call
-    country_labels_map = resolve_qids_to_labels(context, list(country_qids))
-
-    # 4. Process each artist in the batch
-    for artist in artist_batch:
-        qid = artist["wikidata_id"]
-        artist_name = artist["artist"]
-
-        # Get Wikidata info
-        wikidata_info = wikidata_entities.get(qid, {})
-        country_qid = _parse_artist_country(wikidata_info)
-        country_label = country_labels_map.get(country_qid)
-        aliases = _parse_artist_aliases(wikidata_info)
-        artist_mbid = _parse_artist_mbid(wikidata_info)
-
-        # Get Last.fm data using fallback logic
-        lastfm_data = get_artist_info_with_fallback(
-            context, artist_name, aliases, artist_mbid, api_key, api_url
+    try:
+        # 1. Fetch all Wikidata entities for the batch
+        # This respects the serial constraint via process_items_concurrently_async(limit=1) caller
+        wikidata_entities = await async_fetch_wikidata_entities_batch_with_cache(
+            context, qids_in_batch, session=session
         )
 
-        tags = []
-        similar_artists = []
-        if lastfm_data and lastfm_data.get("artist"):
-            artist_data = lastfm_data["artist"]
-            tags = [
-                tag["name"]
-                for tag in artist_data.get("tags", {}).get("tag", [])
-                if "name" in tag
-            ][:5]
-            similar_artists = [
-                sim["name"]
-                for sim in artist_data.get("similar", {}).get("artist", [])
-                if "name" in sim
-            ][:5]
+        # 2. Collect all unique country QIDs from the current artist batch
+        country_qids = set()
+        for qid in qids_in_batch:
+            artist_info = wikidata_entities.get(qid, {})
+            country_qid = _parse_artist_country(artist_info)
+            if country_qid:
+                country_qids.add(country_qid)
 
-        final_record = {
-            "id": qid,
-            "name": artist_name,
-            "aliases": aliases,
-            "country": country_label,
-            "genres": artist["genres"],
-            "tags": tags,
-            "similar_artists": similar_artists,
-        }
-        enriched_batch.append(final_record)
+        # 3. Resolve these country QIDs to labels in a single batch call
+        country_labels_map = await async_resolve_qids_to_labels(
+            context, list(country_qids), session=session
+        )
 
-    return enriched_batch
+        # 4. Process each artist in the batch concurrently for LastFM
+        async def process_single_artist(artist: Dict[str, Any]) -> Dict[str, Any]:
+            qid = artist["wikidata_id"]
+            artist_name = artist["artist"]
+
+            # Get Wikidata info
+            wikidata_info = wikidata_entities.get(qid, {})
+            country_qid = _parse_artist_country(wikidata_info)
+            country_label = country_labels_map.get(country_qid)
+            aliases = _parse_artist_aliases(wikidata_info)
+            artist_mbid = _parse_artist_mbid(wikidata_info)
+
+            # Get Last.fm data using fallback logic
+            lastfm_data = await async_get_artist_info_with_fallback(
+                context, artist_name, aliases, artist_mbid, api_key, api_url, session=session
+            )
+
+            tags = []
+            similar_artists = []
+            if lastfm_data and lastfm_data.get("artist"):
+                artist_data = lastfm_data["artist"]
+                tags = [
+                    tag["name"]
+                    for tag in artist_data.get("tags", {}).get("tag", [])
+                    if "name" in tag
+                ][:5]
+                similar_artists = [
+                    sim["name"]
+                    for sim in artist_data.get("similar", {}).get("artist", [])
+                    if "name" in sim
+                ][:5]
+
+            return {
+                "id": qid,
+                "name": artist_name,
+                "aliases": aliases,
+                "country": country_label,
+                "genres": artist["genres"],
+                "tags": tags,
+                "similar_artists": similar_artists,
+            }
+
+        # Run all LastFM fetches for this batch concurrently
+        enriched_batch = await asyncio.gather(
+            *[process_single_artist(artist) for artist in artist_batch]
+        )
+
+    finally:
+        if should_close_session:
+            await session.close()
+
+    return list(enriched_batch)
 
 
 @asset(
@@ -124,7 +159,7 @@ def _enrich_artist_batch(
     description="Creates artist dataset with enriched details from Wikidata and Last.fm.",
     required_resource_keys={"api_config"},
 )
-def artists_extraction_from_artist_index(context: AssetExecutionContext):
+async def artists_extraction_from_artist_index(context: AssetExecutionContext):
     """
     Loads artists from the index, enriches them with data from Wikidata (country, aliases)
     and Last.fm (tags, similar artists) using concurrent, cached API calls, and saves
@@ -136,8 +171,9 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
 
     # 1. Load upstream data
     artist_df = pl.read_ndjson(ARTIST_INDEX)
-    artist_df = artist_df.head(50)
-    
+
+    # artist_df = artist_df.head(50)
+
     artists_to_process = [
     artist for artist in artist_df.to_dicts() if artist.get("wikipedia_url")
     ]
@@ -150,16 +186,25 @@ def artists_extraction_from_artist_index(context: AssetExecutionContext):
     )
 
     # 3. Define a partial function for the worker to pass extra args
-    from functools import partial
+    # We create a shared session for better performance if possible, but passing it to 
+    # process_items_concurrently_async via partial is tricky if it's not picklable 
+    # (though asyncio stuff isn't pickled here, it's just async).
+    # Since we are inside an async asset, we can create a session here.
+    
+    async with create_aiohttp_session() as session:
+        worker_fn = partial(
+            _async_enrich_artist_batch, context=context, api_key=api_key, api_url=api_url, session=session
+        )
 
-    worker_fn = partial(
-        _enrich_artist_batch, context=context, api_key=api_key, api_url=api_url
-    )
-
-    # 4. Process batches concurrently
-    nested_results = process_items_concurrently(
-        items=artist_batches, process_func=worker_fn, logger=context.log
-    )
+        # 4. Process batches concurrently
+        # max_concurrent_tasks=1 ensures we respect Wikidata serial etiquette for the batch requests.
+        # But inside each batch, LastFM requests happen concurrently.
+        nested_results = await process_items_concurrently_async(
+            items=artist_batches, 
+            process_func=worker_fn, 
+            max_concurrent_tasks=1,
+            logger=context.log
+        )
 
     # 5. Flatten, deduplicate, and save results
     all_results = [item for sublist in nested_results for item in sublist]

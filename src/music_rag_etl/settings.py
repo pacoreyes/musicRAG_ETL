@@ -2,7 +2,6 @@
 Centralized configuration settings for the musicRAG ETL project.
 """
 
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 

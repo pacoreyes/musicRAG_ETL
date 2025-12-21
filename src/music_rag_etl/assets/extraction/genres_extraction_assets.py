@@ -1,5 +1,8 @@
+import asyncio
+import aiohttp
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from functools import partial
 
 import polars as pl
 from dagster import asset, AssetExecutionContext
@@ -7,11 +10,12 @@ from dagster import asset, AssetExecutionContext
 from music_rag_etl.settings import ARTIST_INDEX, GENRES_FILE, CHUNK_SIZE
 from music_rag_etl.utils.io_helpers import save_to_jsonl, chunk_list
 from music_rag_etl.utils.transformation_helpers import extract_unique_ids_from_column
-from music_rag_etl.utils.concurrency_helpers import process_items_concurrently
+from music_rag_etl.utils.concurrency_helpers import process_items_concurrently_async
 from music_rag_etl.utils.wikidata_helpers import (
-    fetch_wikidata_entities_batch,
+    async_fetch_wikidata_entities_batch,
     parse_wikidata_entity_label,
 )
+from music_rag_etl.utils.request_utils import create_aiohttp_session
 
 
 @asset(
@@ -19,7 +23,7 @@ from music_rag_etl.utils.wikidata_helpers import (
     deps=["artist_index_with_relevance"],
     description="Extraction of all genres (dict: QID/label) from the Artist index and saves them to a JSONL file.",
 )
-def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
+async def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
     """
     Extracts all unique music genre IDs from the artist index, fetches their
     English labels from Wikidata concurrently in batches, and saves the
@@ -37,14 +41,15 @@ def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
     context.log.info(f"Processing all {len(unique_genre_ids)} genres for this run.")
 
     # 2. Define a worker function for concurrent batch processing
-    def fetch_and_parse_genre_batch(
+    async def async_fetch_and_parse_genre_batch(
         id_chunk: List[str],
+        session: aiohttp.ClientSession,
     ) -> List[Dict[str, Any]]:
         """
         Worker function to fetch a batch of Wikidata entities and parse their labels.
         """
         batch_results = []
-        entity_data = fetch_wikidata_entities_batch(context, id_chunk)
+        entity_data = await async_fetch_wikidata_entities_batch(context, id_chunk, session=session)
         if not entity_data:
             return []
 
@@ -62,13 +67,17 @@ def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
         f"Fetching {len(unique_genre_ids)} genre labels in {len(id_chunks)} chunks..."
     )
 
-    # Process chunks of IDs concurrently
-    nested_results = process_items_concurrently(
-        items=id_chunks,
-        process_func=fetch_and_parse_genre_batch,
-        max_workers=5,  # Max 5 simultaneous connections as requested
-        logger=context.log,
-    )
+    async with create_aiohttp_session() as session:
+        # Process chunks of IDs concurrently
+        # We use max_concurrent_tasks=1 to ensure requests are made in series as per Wikidata policy
+        worker_fn = partial(async_fetch_and_parse_genre_batch, session=session)
+        
+        nested_results = await process_items_concurrently_async(
+            items=id_chunks,
+            process_func=worker_fn,
+            max_concurrent_tasks=1,
+            logger=context.log,
+        )
 
     # Flatten the list of lists into a single list
     results = [item for sublist in nested_results for item in sublist]
