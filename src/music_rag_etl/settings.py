@@ -23,6 +23,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 # Top-level directory for all data, caches, and databases.
 DATA_DIR = PROJECT_ROOT / "data_volume"
 
+# Local Data
+LOCAL_DATA_DIR = PROJECT_ROOT / "src" / "music_rag_etl" / "data"
 
 # ==============================================================================
 #  CACHE & DATABASE PATHS

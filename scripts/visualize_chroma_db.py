@@ -1,42 +1,54 @@
 """
-Generates an interactive Nomic map for a ChromaDB collection's embeddings.
+Standalone script to generate an interactive Nomic map for ChromaDB embeddings.
+
+This script connects to the local ChromaDB instance, fetches the stored 
+embeddings and metadata, and uploads them to Nomic Atlas to create a 
+visual, interactive map of the vector space.
+
+Usage:
+    python -m scripts.visualize_chroma_db
 """
 
-from pathlib import Path
 import os
+from typing import Optional
 
-from dotenv import load_dotenv
 import chromadb
-import numpy as np
 import nomic
+import numpy as np
+from dotenv import load_dotenv
 from nomic import atlas
 from nomic.data_inference import NomicTopicOptions
 from tqdm import tqdm
 
-from music_rag_etl.settings import DEFAULT_COLLECTION_NAME, CHROMA_DB_PATH
+from music_rag_etl.settings import CHROMA_DB_PATH, DEFAULT_COLLECTION_NAME
 
-# Load environment variables from .env file before other imports
+# Load environment variables from .env file before other operations
 load_dotenv()
 
-# Get the API key from the environment
-api_key = os.getenv("NOMIC_API_KEY")
 
+def main() -> None:
+    """
+    Main execution function to generate the Nomic Atlas visualization.
+    """
+    print("--- ChromaDB Vector Space Visualization ---")
 
-def main():
-    """Main function to generate the Nomic map."""
-    # Authenticate with Nomic using the API key from .env
+    # 1. Authenticate with Nomic
+    api_key = os.getenv("NOMIC_API_KEY")
     if api_key:
         nomic.login(api_key)
+    else:
+        print("Warning: NOMIC_API_KEY not found in environment.")
 
     collection_name = DEFAULT_COLLECTION_NAME
     project_name = "musicRAG ChromaDB Visualization"
-    max_documents = None
+    max_documents: Optional[int] = None
 
+    # 2. Check Database Existence
     if not CHROMA_DB_PATH.exists():
         print(f"Error: Database path '{CHROMA_DB_PATH}' does not exist.")
         return
 
-    # Connect to ChromaDB
+    # 3. Connect to ChromaDB
     print(f"Connecting to ChromaDB at '{CHROMA_DB_PATH}'...")
     client = chromadb.PersistentClient(path=str(CHROMA_DB_PATH))
 
@@ -46,13 +58,17 @@ def main():
         print(f"Error: Collection '{collection_name}' not found.")
         return
 
-    # Fetch all data from the collection
+    # 4. Fetch Data from Collection
     total_docs = collection.count()
     limit = max_documents if max_documents else total_docs
 
+    if total_docs == 0:
+        print("Error: The collection is empty.")
+        return
+
     print(f"Fetching {limit} documents from collection '{collection_name}'...")
 
-    # ChromaDB's get() can be slow for large datasets, so fetch in batches.
+    # Fetch in batches for efficiency
     batch_size = 500
     all_results = {"ids": [], "embeddings": [], "metadatas": []}
 
@@ -69,20 +85,20 @@ def main():
             pbar.update(len(batch["ids"]))
 
     if not all_results["embeddings"]:
-        print("No documents found to visualize.")
+        print("Error: No documents with embeddings found to visualize.")
         return
 
+    # 5. Prepare Data for Nomic Atlas
     print("Preparing data for Nomic Atlas...")
     embeddings = np.array(all_results["embeddings"])
-
-    # Add the document ID to the metadata for Nomic to use
     metadata = all_results["metadatas"]
+
+    # Ensure each record has an ID for Nomic
     for i, doc_id in enumerate(all_results["ids"]):
         metadata[i]["id"] = doc_id
 
-    # Create the Nomic Atlas map
+    # 6. Create Nomic Atlas Map
     print(f"Creating Nomic Atlas project '{project_name}'...")
-
     try:
         project = atlas.map_data(
             data=metadata,
@@ -94,14 +110,14 @@ def main():
                 topic_label_field="artist_name",
             ),
         )
-        print("\nSuccessfully created Nomic map!")
-        print(f"View your interactive map at: {project.maps[0].map_link}")
+        print("\nSUCCESS: Interactive Nomic map created!")
+        print(f"View your map at: {project.maps[0].map_link}")
     except ValueError as e:
         if "You have not configured your Nomic API token" in str(e):
-            print("\nError: Nomic API token not configured.")
-            print("Please run 'nomic login' in your terminal to configure your token.")
+            print("\nERROR: Nomic API token not configured.")
+            print("Please run 'nomic login' in your terminal or set NOMIC_API_KEY.")
         else:
-            raise e
+            print(f"\nERROR: Failed to create Nomic map: {e}")
 
 
 if __name__ == "__main__":
@@ -109,5 +125,5 @@ if __name__ == "__main__":
 
 """
 DO NOT DELETE
-python -m src.music_rag_etl.assets.loading.query_visualize_chroma_db
+python -m scripts.visualize_chroma_db
 """

@@ -1,106 +1,33 @@
-"""A script to query a ChromaDB collection with a given text query."""
+"""
+Standalone script to query a ChromaDB collection with a given text query.
+
+Provides both a one-off query capability and an interactive mode to explore
+the vector database. Reuses core embedding logic for consistency.
+
+Usage:
+    python scripts/query_chromadb.py "How many albums did Depeche Mode release?"
+"""
 
 import argparse
-import os
 from pathlib import Path
 from typing import Dict, Any
 
-import torch
 import chromadb
-from chromadb import Documents, EmbeddingFunction, Embeddings
-from sentence_transformers import SentenceTransformer
 
 from music_rag_etl.settings import DEFAULT_MODEL_NAME, DEFAULT_COLLECTION_NAME
-
-
-# Disable Parallelism to prevent deadlocks with some model tokenizers
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-
-def get_device() -> torch.device:
-    """Returns the most appropriate device available in the system.
-
-    Returns:
-        torch.device: The selected device (CUDA, MPS, or CPU).
-    """
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-class NomicEmbeddingFunction(EmbeddingFunction):
-    """Custom embedding function for the Nomic-v1.5 model.
-
-    This class handles the specifics of using the Nomic embedding model,
-    including adding required prefixes for documents and queries.
-
-    Attributes:
-        model: The loaded SentenceTransformer model.
-    """
-
-    _SEARCH_DOCUMENT_PREFIX = "search_document: "
-    _SEARCH_QUERY_PREFIX = "search_query: "
-
-    def __init__(self, model_name: str, device: torch.device):
-        """Initializes the embedding function.
-
-        Args:
-            model_name (str): The name of the SentenceTransformer model to load.
-            device (torch.device): The device to run the model on.
-        """
-        print(f"Loading model '{model_name}' on device '{device}'...")
-        self.model = SentenceTransformer(
-            model_name, device=device, trust_remote_code=True
-        )
-        self.model.eval()
-
-    def __call__(self, input_texts: Documents) -> Embeddings:
-        """Embeds a batch of documents.
-
-        Args:
-            input_texts (Documents): A list of document texts to embed.
-
-        Returns:
-            Embeddings: A list of embeddings, one for each document.
-        """
-        processed_input = [
-            f"{self._SEARCH_DOCUMENT_PREFIX}{text}"
-            if not text.startswith(self._SEARCH_DOCUMENT_PREFIX)
-            else text
-            for text in input_texts
-        ]
-        embeddings = self.model.encode(
-            processed_input,
-            convert_to_numpy=True,
-            show_progress_bar=False,
-            normalize_embeddings=True,
-        )
-        return embeddings.tolist()
-
-    def embed_query(self, query: str) -> list[float]:
-        """Embeds a single query string.
-
-        Args:
-            query (str): The query text to embed.
-
-        Returns:
-            list[float]: The embedding for the query.
-        """
-        prefixed_query = f"{self._SEARCH_QUERY_PREFIX}{query}"
-        embedding = self.model.encode(
-            [prefixed_query], convert_to_numpy=True, normalize_embeddings=True
-        )
-        return embedding[0].tolist()
+from music_rag_etl.utils.chroma_helpers import (
+    NomicEmbeddingFunction,
+    get_device,
+)
 
 
 def view_embeddings(collection: chromadb.Collection, limit: int) -> None:
-    """Fetches and displays a sample of documents from the collection.
+    """
+    Fetches and displays a sample of documents from the collection.
 
     Args:
-        collection (chromadb.Collection): The collection to inspect.
-        limit (int): The maximum number of documents to display.
+        collection: The ChromaDB collection to inspect.
+        limit: The maximum number of documents to display.
     """
     print(f"Fetching {limit} sample documents from '{collection.name}'...")
     try:
@@ -131,7 +58,8 @@ def perform_query(
     n_results: int,
     where_filter: Dict[str, Any],
 ) -> None:
-    """Performs a query and prints the results.
+    """
+    Performs a query and prints the results.
 
     Args:
         collection: The ChromaDB collection to query.
@@ -158,7 +86,6 @@ def perform_query(
     print("-" * 30)
     for i, doc_id in enumerate(results["ids"][0]):
         metadata = results["metadatas"][0][i]
-        print(f"\n--->{metadata} \n")
         print(f"Result {i + 1}:")
         print(f"  - ID:       {doc_id}")
         print(f"  - Title:    {metadata.get('artist_name', 'N/A')}")
@@ -169,12 +96,13 @@ def perform_query(
             f"  - Chunks:   {metadata.get('chunk_index', 'N/A')} of "
             f"{metadata.get('total_chunks', 'N/A')}"
         )
-        print(f"  - Document: {results['documents'][0][i][:600]}...")
+        print(f"  - Document (snippet): {results['documents'][0][i][:600]}...")
         print("-" * 30)
 
 
 def _setup_arg_parser() -> argparse.ArgumentParser:
-    """Configures the command-line argument parser.
+    """
+    Configures the command-line argument parser.
 
     Returns:
         argparse.ArgumentParser: The configured argument parser.
@@ -220,17 +148,19 @@ def _setup_arg_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """Main function to handle arguments and run the query loop."""
+    """
+    Main function to handle arguments and run the query loop.
+    """
     parser = _setup_arg_parser()
     args = parser.parse_args()
 
     if not args.db_path.exists():
-        print(f"Error: DB path '{args.db_path}' not found. Run ingest first.")
+        print(f"Error: DB path '{args.db_path}' not found. Ensure the database exists.")
         return
 
     if (
-        args.filter_min_year
-        and args.filter_max_year
+        args.filter_min_year is not None
+        and args.filter_max_year is not None
         and args.filter_min_year > args.filter_max_year
     ):
         print("Error: --filter-min-year cannot exceed --filter-max-year.")
@@ -257,11 +187,13 @@ def main() -> None:
     where_filter: Dict[str, Any] = {}
     if args.filter_genre:
         where_filter["genres"] = {"$contains": args.filter_genre}
+    
     year_filter = {}
     if args.filter_min_year is not None:
         year_filter["$gte"] = args.filter_min_year
     if args.filter_max_year is not None:
         year_filter["$lte"] = args.filter_max_year
+    
     if year_filter:
         where_filter["inception_year"] = year_filter
 
@@ -287,5 +219,5 @@ if __name__ == "__main__":
 
 """
 DO NOT DELETE
-python -m src.music_rag_etl.assets.loading.query_chromadb
+python -m scripts.query_chromadb
 """
