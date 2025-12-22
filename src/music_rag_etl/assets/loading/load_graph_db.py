@@ -1,6 +1,7 @@
 from dagster import AssetExecutionContext, MaterializeResult, asset
 from gqlalchemy import Memgraph
 from tqdm import tqdm
+from pydantic import ValidationError
 
 from music_rag_etl.settings import LOCAL_DATA_DIR
 from music_rag_etl.utils.io_helpers import load_jsonl
@@ -8,6 +9,12 @@ from music_rag_etl.utils.memgraph_helpers import (
     MemgraphConfig,
     clear_database,
     get_memgraph_client,
+)
+from music_rag_etl.utils.models import (
+    GenreNode,
+    ArtistNode,
+    AlbumNode,
+    TrackNode,
 )
 
 
@@ -78,53 +85,64 @@ def load_graph_db(context: AssetExecutionContext, config: MemgraphConfig) -> Mat
     genres_data = load_jsonl(genres_path)
     context.log.info(f"Loading {len(genres_data)} genres...")
     
-    for genre in tqdm(genres_data, desc="Loading Genres"):
-        # Map genre_label -> name
-        query = """
-        CREATE (:Genre {
-            id: $id, 
-            name: $name, 
-            aliases: $aliases
-        });
-        """
-        memgraph.execute(
-            query, 
-            {
-                "id": genre.get("id"),
-                "name": genre.get("genre_label"),
-                "aliases": genre.get("aliases", [])
-            }
-        )
+    genre_count = 0
+    for raw_genre in tqdm(genres_data, desc="Loading Genres"):
+        try:
+            genre = GenreNode(**raw_genre)
+            query = """
+            CREATE (:Genre {
+                id: $id, 
+                name: $name, 
+                aliases: $aliases
+            });
+            """
+            memgraph.execute(
+                query, 
+                {
+                    "id": genre.id,
+                    "name": genre.name,
+                    "aliases": genre.aliases
+                }
+            )
+            genre_count += 1
+        except ValidationError as e:
+            context.log.warning(f"Skipping invalid genre record: {e}")
 
     # 2. Artists
     artists_path = LOCAL_DATA_DIR / "artists.jsonl"
     artists_data = load_jsonl(artists_path)
     context.log.info(f"Loading {len(artists_data)} artists...")
     
-    for artist in tqdm(artists_data, desc="Loading Artists"):
-        query = """
-        CREATE (:Artist {
-            id: $id, 
-            name: $name, 
-            country: $country, 
-            aliases: $aliases,
-            tags: $tags,
-            genres: $genres,
-            similar_artists: $similar_artists
-        });
-        """
-        memgraph.execute(
-            query,
-            {
-                "id": artist.get("id"),
-                "name": artist.get("name"),
-                "country": artist.get("country"),
-                "aliases": artist.get("aliases", []),
-                "tags": artist.get("tags", []),
-                "genres": artist.get("genres", []),  # Temp prop
-                "similar_artists": artist.get("similar_artists", [])  # Temp prop
-            }
-        )
+    artist_count = 0
+    for raw_artist in tqdm(artists_data, desc="Loading Artists"):
+        try:
+            artist = ArtistNode(**raw_artist)
+            query = """
+            CREATE (:Artist {
+                id: $id, 
+                name: $name, 
+                country: $country, 
+                aliases: $aliases,
+                tags: $tags,
+                genres: $genres,
+                similar_artists: $similar_artists
+            });
+            """
+            memgraph.execute(
+                query,
+                {
+                    "id": artist.id,
+                    "name": artist.name,
+                    "country": artist.country,
+                    "aliases": artist.aliases,
+                    "tags": artist.tags,
+                    "genres": artist.genres,  # Temp prop
+                    "similar_artists": artist.similar_artists  # Temp prop
+                }
+            )
+            artist_count += 1
+        except ValidationError as e:
+            context.log.warning(f"Skipping invalid artist record: {e}")
 
     # 3. Albums
     albums_path = LOCAL_DATA_DIR / "albums.jsonl"
@@ -132,31 +150,30 @@ def load_graph_db(context: AssetExecutionContext, config: MemgraphConfig) -> Mat
     context.log.info(f"Loading {len(albums_data)} albums...")
     
     album_count = 0
-    for album in tqdm(albums_data, desc="Loading Albums"):
-        artist_id = album.get("artist_id")
-        # Filter: Skip if artist_id is missing
-        if not artist_id:
-            continue
-            
-        query = """
-        CREATE (:Album {
-            id: $id, 
-            title: $title, 
-            year: $year,
-            artist_id: $artist_id
-        });
-        """
-        memgraph.execute(
-            query,
-            {
-                "id": album.get("id"),
-                "title": album.get("title"),
-                "year": album.get("year"),
-                "artist_id": artist_id # Temp prop
-            }
-        )
-        album_count += 1
-    context.log.info(f"Loaded {album_count} albums (filtered).")
+    for raw_album in tqdm(albums_data, desc="Loading Albums"):
+        try:
+            album = AlbumNode(**raw_album)
+            query = """
+            CREATE (:Album {
+                id: $id, 
+                title: $title, 
+                year: $year,
+                artist_id: $artist_id
+            });
+            """
+            memgraph.execute(
+                query,
+                {
+                    "id": album.id,
+                    "title": album.title,
+                    "year": album.year,
+                    "artist_id": album.artist_id # Temp prop
+                }
+            )
+            album_count += 1
+        except ValidationError as e:
+            context.log.warning(f"Skipping invalid album record: {e}")
+    context.log.info(f"Loaded {album_count} albums.")
 
     # 4. Tracks
     tracks_path = LOCAL_DATA_DIR / "tracks.jsonl"
@@ -164,29 +181,28 @@ def load_graph_db(context: AssetExecutionContext, config: MemgraphConfig) -> Mat
     context.log.info(f"Loading {len(tracks_data)} tracks...")
     
     track_count = 0
-    for track in tqdm(tracks_data, desc="Loading Tracks"):
-        album_id = track.get("album_id")
-        # Filter: Skip if album_id is missing
-        if not album_id:
-            continue
-            
-        query = """
-        CREATE (:Track {
-            id: $id, 
-            title: $title,
-            album_id: $album_id
-        });
-        """
-        memgraph.execute(
-            query,
-            {
-                "id": track.get("id"),
-                "title": track.get("title"),
-                "album_id": album_id # Temp prop
-            }
-        )
-        track_count += 1
-    context.log.info(f"Loaded {track_count} tracks (filtered).")
+    for raw_track in tqdm(tracks_data, desc="Loading Tracks"):
+        try:
+            track = TrackNode(**raw_track)
+            query = """
+            CREATE (:Track {
+                id: $id, 
+                title: $title,
+                album_id: $album_id
+            });
+            """
+            memgraph.execute(
+                query,
+                {
+                    "id": track.id,
+                    "title": track.title,
+                    "album_id": track.album_id # Temp prop
+                }
+            )
+            track_count += 1
+        except ValidationError as e:
+            context.log.warning(f"Skipping invalid track record: {e}")
+    context.log.info(f"Loaded {track_count} tracks.")
 
     # --- Step 3: Index Creation ---
     create_indexes(memgraph, context)

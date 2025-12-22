@@ -71,4 +71,7 @@ if __name__ == "__main__":
 
 """ DO NOT DELETE
 python -m scripts.erase_memgraph
+
+MATCH path = (art:Artist {name: "Arcade Fire"})-[:SIMILAR_TO]->(similar:Artist)
+RETURN path;
 """
