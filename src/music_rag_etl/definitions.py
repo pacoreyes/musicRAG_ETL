@@ -11,6 +11,8 @@ from music_rag_etl.assets.extraction import (
 from music_rag_etl.assets.transformation import (
     artist_index_preprocess,
 )
+from music_rag_etl.assets.loading import load_graph_db
+
 from music_rag_etl import assets as root_assets
 
 # Create a list of all asset modules
@@ -23,6 +25,7 @@ asset_modules = [
     artist_extraction_assets,
     albums_extraction_assets,
     tracks_extraction_assets,
+    load_graph_db
 ]
 
 # Load all assets from the specified modules

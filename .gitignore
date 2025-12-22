@@ -23,7 +23,7 @@ dist/
 *.log
 
 # Data (ETL specific)
-data/
+# data/
 output/
 temp/
 data_volume/
