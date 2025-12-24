@@ -7,8 +7,8 @@ from typing import List, Dict, Any, Optional
 from functools import partial
 
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE, BATCH_SIZE, LASTFM_MAX_RPS
-from music_rag_etl.utils.io_helpers import chunk_list, save_to_jsonl
-from music_rag_etl.utils.concurrency_helpers import process_items_concurrently_async, process_items_incrementally_async, AsyncRateLimiter
+from music_rag_etl.utils.io_helpers import chunk_list
+from music_rag_etl.utils.concurrency_helpers import process_items_incrementally_async, AsyncRateLimiter
 from music_rag_etl.utils.lastfm_helpers import async_get_artist_info_with_fallback
 from music_rag_etl.utils.wikidata_helpers import (
     async_fetch_wikidata_entities_batch_with_cache,
@@ -26,8 +26,8 @@ def _parse_artist_country(entity_data: Dict[str, Any]) -> Optional[str]:
         if main_snak.get("snaktype") == "value":
             country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
             if isinstance(country_id, dict):
-                 print(f"DEBUG: Found dict as country_id: {country_id}")
-                 return None
+                print(f"DEBUG: Found dict as country_id: {country_id}")
+                return None
             return country_id
     # Property P27: country of citizenship
     if "P27" in claims:
@@ -35,8 +35,8 @@ def _parse_artist_country(entity_data: Dict[str, Any]) -> Optional[str]:
         if main_snak.get("snaktype") == "value":
             country_id = main_snak.get("datavalue", {}).get("value", {}).get("id")
             if isinstance(country_id, dict):
-                 print(f"DEBUG: Found dict as country_id: {country_id}")
-                 return None
+                print(f"DEBUG: Found dict as country_id: {country_id}")
+                return None
             return country_id
     return None
 
@@ -156,12 +156,14 @@ async def _async_enrich_artist_batch(
 
 
 @asset(
-    name="artists_extraction_from_artist_index",
-    deps=["genres_extraction_from_artist_index"],
-    description="Creates artist dataset with enriched details from Wikidata and Last.fm.",
+    name="extract_artist",
+    deps=["extract_genres"],
+    description="Extract Artists dataset artists.jsonl from the Artist Index and enrich them with data from "
+                "Wikidata API and Last FM API",
     required_resource_keys={"api_config"},
+    group_name="extraction"
 )
-async def artists_extraction_from_artist_index(context: AssetExecutionContext):
+async def extract_artist(context: AssetExecutionContext):
     """
     Loads artists from the index, enriches them with data from Wikidata (country, aliases)
     and Last.fm (tags, similar artists) using concurrent, cached API calls, and saves

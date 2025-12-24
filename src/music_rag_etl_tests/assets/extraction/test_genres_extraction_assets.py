@@ -5,8 +5,8 @@ from pathlib import Path
 import polars as pl
 from dagster import build_asset_context
 
-from music_rag_etl.assets.extraction.genres_extraction_assets import (
-    genres_extraction_from_artist_index,
+from music_rag_etl.assets.extraction.extract_genres import (
+    extract_genres,
 )
 from music_rag_etl.settings import GENRES_FILE
 
@@ -68,7 +68,7 @@ async def test_genres_extraction_from_artist_index(
     mock_fetch_batch.side_effect = fetch_side_effect
 
     # Act
-    result = await genres_extraction_from_artist_index(context)
+    result = await extract_genres(context)
 
     # Assert
     assert result == GENRES_FILE

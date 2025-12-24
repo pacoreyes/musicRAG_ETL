@@ -1,30 +1,28 @@
 from dagster import Definitions, load_assets_from_modules, EnvVar
 
+from music_rag_etl import assets as root_assets
 from music_rag_etl.assets.extraction import (
-    artist_index_extraction_assets,
-    wikipedia_articles_extraction_assets,
-    genres_extraction_assets,
-    artist_extraction_assets,
-    albums_extraction_assets,
-    tracks_extraction_assets,
+    build_artist_index,
+    extract_wikipedia_articles,
+    extract_genres,
+    extract_artist,
+    extract_albums,
+    extract_tracks,
 )
-from music_rag_etl.assets.transformation import (
-    artist_index_preprocess,
-)
+from music_rag_etl.assets.transformation import preprocess_artist_index
 from music_rag_etl.assets.loading import load_graph_db
 
-from music_rag_etl import assets as root_assets
 
 # Create a list of all asset modules
 asset_modules = [
     root_assets,
-    artist_index_extraction_assets,
-    artist_index_preprocess,
-    wikipedia_articles_extraction_assets,
-    genres_extraction_assets,
-    artist_extraction_assets,
-    albums_extraction_assets,
-    tracks_extraction_assets,
+    build_artist_index,
+    preprocess_artist_index,
+    extract_wikipedia_articles,
+    extract_genres,
+    extract_artist,
+    extract_albums,
+    extract_tracks,
     load_graph_db
 ]
 

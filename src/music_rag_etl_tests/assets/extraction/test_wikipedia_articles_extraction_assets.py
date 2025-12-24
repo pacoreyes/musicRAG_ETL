@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock, call, AsyncMock
 import polars as pl
 from dagster import build_asset_context
 
-from music_rag_etl.assets.extraction.wikipedia_articles_extraction_assets import (
+from music_rag_etl.assets.extraction.extract_wikipedia_articles import (
     create_wikipedia_articles_dataset,
 )
 from music_rag_etl.settings import PATH_TEMP

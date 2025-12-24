@@ -6,9 +6,9 @@ import polars as pl
 import pytest
 from dagster import materialize, build_asset_context, DagsterInstance
 
-from music_rag_etl.assets.extraction.artist_extraction_assets import (
+from music_rag_etl.assets.extraction.extract_artist import (
     _async_enrich_artist_batch,
-    artists_extraction_from_artist_index,
+    extract_artist,
 )
 from music_rag_etl.settings import ARTIST_INDEX, ARTISTS_FILE
 
@@ -126,7 +126,7 @@ async def test_artists_extraction_from_artist_index_asset(tmp_path):
         )
         
         # Call the async asset function
-        result = await artists_extraction_from_artist_index(context)
+        result = await extract_artist(context)
 
         # 5. Verify the output
         assert result == str(mock_artists_file_path)

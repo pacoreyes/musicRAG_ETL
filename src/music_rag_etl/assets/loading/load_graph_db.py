@@ -51,9 +51,9 @@ def create_indexes(memgraph: Memgraph, context: AssetExecutionContext) -> None:
 
 @asset(
     name="load_graph_db",
-    deps=["create_tracks_asset"],
+    deps=["extract_tracks"],
     description="Ingests Artists, Albums, Tracks, and Genres into Memgraph.",
-    # group_name="loading",
+    group_name="loading"
 )
 def load_graph_db(context: AssetExecutionContext, config: MemgraphConfig) -> MaterializeResult:
     """

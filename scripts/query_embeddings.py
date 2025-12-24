@@ -5,7 +5,7 @@ Provides both a one-off query capability and an interactive mode to explore
 the vector database. Reuses core embedding logic for consistency.
 
 Usage:
-    python scripts/query_chromadb.py "How many albums did Depeche Mode release?"
+    python scripts/query_embeddings.py "How many albums did Depeche Mode release?"
 """
 
 import argparse

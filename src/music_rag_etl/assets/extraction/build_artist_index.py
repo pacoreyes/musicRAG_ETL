@@ -8,7 +8,6 @@ from music_rag_etl.utils.wikidata_helpers import (
     execute_sparql_extraction,
     format_artist_record_from_sparql,
 )
-
 from music_rag_etl.settings import (
     PATH_DATASETS,
     DECADES_TO_EXTRACT,
@@ -16,9 +15,7 @@ from music_rag_etl.settings import (
 )
 
 
-def create_artist_extraction_asset(
-    decade: str, year_range: tuple[int, int]
-) -> Callable:
+def create_artist_extraction_asset(decade: str, year_range: tuple[int, int]) -> Callable:
     """
     Asset factory for creating a Dagster asset that extracts artist data for a
     specific decade from Wikidata.
@@ -34,7 +31,11 @@ def create_artist_extraction_asset(
     output_filename = f"artist_index_{decade}.jsonl"
     output_path = PATH_DATASETS / output_filename
 
-    @asset(name=f"artist_index_{decade}")
+    @asset(
+        name=f"build_artist_index_{decade}",
+        description="Factory function",
+        group_name="extraction"
+    )
     def _extraction_asset(context: AssetExecutionContext) -> str:
         """
         Extracts artist data for a specific decade and saves it to a JSONL file.
@@ -68,10 +69,12 @@ def build_artist_extraction_assets():
 
 
 @asset(
-    name="artist_index",
-    deps=[f"artist_index_{decade}" for decade in DECADES_TO_EXTRACT],
+    name="build_artist_index",
+    deps=[f"build_artist_index_{decade}" for decade in DECADES_TO_EXTRACT],
+    description="Merges all decade-specific artist JSONL files into a single artist_index.jsonl.",
+    group_name="extraction"
 )
-def merge_artist_index(context: AssetExecutionContext) -> str:
+def build_artist_index(context: AssetExecutionContext) -> str:
     """
     Merges all decade-specific artist JSONL files into a single artist_index.jsonl.
     """
@@ -79,9 +82,7 @@ def merge_artist_index(context: AssetExecutionContext) -> str:
     input_paths = [
         PATH_DATASETS / f"artist_index_{decade}.jsonl" for decade in DECADES_TO_EXTRACT
     ]
-
     merge_jsonl_files(input_paths, output_path)
-
     context.log.info(f"Merged artist index saved to {output_path}")
     return str(output_path)
 

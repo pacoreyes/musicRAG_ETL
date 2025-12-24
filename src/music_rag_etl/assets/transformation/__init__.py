@@ -1,1 +1,1 @@
-from . import artist_index_preprocess
+from . import preprocess_artist_index

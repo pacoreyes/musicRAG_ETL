@@ -21,11 +21,12 @@ from music_rag_etl.utils.request_utils import create_aiohttp_session
 
 
 @asset(
-    name="genres_extraction_from_artist_index",
-    deps=["artist_index_preprocess"],
-    description="Extraction of all genres (dict: QID/label/aliases) from the Artist index and saves them to a JSONL file.",
+    name="extract_genres",
+    deps=["preprocess_artist_index"],
+    description="Extract Genres dataset genres.jsonl from the Artist Index using the Wikidata API",
+    group_name="extraction"
 )
-async def genres_extraction_from_artist_index(context: AssetExecutionContext) -> Path:
+async def extract_genres(context: AssetExecutionContext) -> Path:
     """
     Extracts all unique music genre IDs from the artist index, fetches their
     English labels and aliases from Wikidata concurrently, and saves the results

@@ -1,3 +1,3 @@
-from . import query_chromadb
-from . import visualize_chroma_db
+from . import query_embeddings
+from . import generate_embeddings_visualization
 from . import erase_memgraph

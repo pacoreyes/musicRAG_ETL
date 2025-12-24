@@ -22,9 +22,10 @@ from music_rag_etl.utils.request_utils import create_aiohttp_session
 
 
 @asset(
-    name="create_wikipedia_articles_dataset",
-    deps=["genres_extraction_from_artist_index"],
-    description="Fetch raw Wikipedia article text, split them in chunks and enrich them with metadata.",
+    name="extract_wikipedia_articles",
+    deps=["extract_genres"],
+    description="Extract Wikipedia articles, split them in chunks and, enrich them with metadata.",
+    group_name="extraction"
 )
 async def create_wikipedia_articles_dataset(
     context: AssetExecutionContext,

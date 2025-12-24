@@ -68,11 +68,12 @@ async def async_fetch_tracks_for_album(
 
 
 @asset(
-    name="create_tracks_asset",
-    deps=["create_albums_asset"],
-    description="Extracts tracks for all albums from Wikidata.",
+    name="extract_tracks",
+    deps=["extract_albums"],
+    description="Extracts Tracks dataset tracks.jsonl from albums.jsonl using Wikidata API with SPARQL",
+    group_name="extraction"
 )
-async def create_tracks_asset(context: AssetExecutionContext) -> str:
+async def extract_tracks(context: AssetExecutionContext) -> str:
     """
     Materializes the tracks dataset by fetching tracks for each album.
     """

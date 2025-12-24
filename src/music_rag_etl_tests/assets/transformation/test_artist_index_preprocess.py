@@ -3,7 +3,7 @@ from unittest.mock import patch
 import polars as pl
 from dagster import build_asset_context
 
-from music_rag_etl.assets.transformation.artist_index_preprocess import (
+from music_rag_etl.assets.transformation.preprocess_artist_index import (
     artist_index_preprocess,
 )
 

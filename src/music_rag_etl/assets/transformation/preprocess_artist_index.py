@@ -5,11 +5,12 @@ from music_rag_etl.settings import ARTIST_INDEX, ARTIST_INDEX_PRE_CLEAN
 
 
 @asset(
-    name="artist_index_preprocess",
-    deps=["artist_index"],
-    description="Deduplicates artists and computes relevance scores.",
+    name="preprocess_artist_index",
+    deps=["build_artist_index"],
+    description="Different text preprocessing tasks in the Artists Index",
+    group_name="text_preprocessing"
 )
-def artist_index_preprocess(context: AssetExecutionContext) -> Path:
+def preprocess_artist_index(context: AssetExecutionContext) -> Path:
     """
     Reads the merged artist index, deduplicates entries, calculates
     a normalized relevance score based on 'linkcount', and saves the result.

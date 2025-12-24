@@ -1,6 +1,5 @@
-import asyncio
 import aiohttp
-from typing import Dict, Any, List, Set, Optional
+from typing import Dict, Any, List
 from functools import partial
 
 import polars as pl
@@ -12,7 +11,6 @@ from music_rag_etl.settings import (
     WIKIDATA_ENTITY_URL,
 )
 from music_rag_etl.utils.io_helpers import save_to_jsonl
-from music_rag_etl.utils.transformation_helpers import extract_unique_ids_from_column
 from music_rag_etl.utils.concurrency_helpers import process_items_incrementally_async
 from music_rag_etl.utils.request_utils import create_aiohttp_session
 from music_rag_etl.utils.sparql_queries import get_albums_by_artist_query
@@ -74,11 +72,12 @@ async def async_fetch_albums_for_artist(
 
 
 @asset(
-    name="create_albums_asset",
-    deps=["artists_extraction_from_artist_index"],
-    description="Extracts albums for all artists from Wikidata",
+    name="extract_albums",
+    deps=["extract_artist"],
+    description="Extracts Albums dataset albums.jsonl from Artist Index using Wikidata API with SPARQL",
+    group_name="extraction"
 )
-async def create_albums_asset(context: AssetExecutionContext) -> str:
+async def create_albums(context: AssetExecutionContext) -> str:
     """
     Materializes the albums dataset.
     """
